@@ -1,0 +1,30 @@
+criteo:
+  raw_path: data/raw/criteo/criteo-research-uplift-v2.1.csv.gz
+  processed_path: data/processed/criteo
+  decision_visit_path: data/processed/criteo/criteo_decision_visit.parquet
+  decision_conversion_path: data/processed/criteo/criteo_decision_conversion.parquet
+  feature_columns:
+    - f0
+    - f1
+    - f2
+    - f3
+    - f4
+    - f5
+    - f6
+    - f7
+    - f8
+    - f9
+    - f10
+    - f11
+  treatment_column: treatment
+  exposure_column: exposure
+  primary_outcome_column: visit
+  secondary_outcome_column: conversion
+  outcome_columns:
+    - visit
+    - conversion
+  split:
+    train_size: 0.6
+    validation_size: 0.2
+    test_size: 0.2
+    random_state: 42

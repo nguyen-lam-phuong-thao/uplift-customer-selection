@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+
+# Raw data
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/criteo/
+data/raw/criteo/*
+!data/raw/criteo/.gitkeep
+!data/raw/retailhero/
+data/raw/retailhero/*
+!data/raw/retailhero/.gitkeep
+
+# Interim data
+data/interim/*
+!data/interim/.gitkeep
+
+# Processed data
+data/processed/*
+!data/processed/.gitkeep
+
+# Generated artifacts
+artifacts/figures/*
+!artifacts/figures/.gitkeep
+artifacts/metrics/*
+!artifacts/metrics/.gitkeep
+
+# OS and editor files
+.DS_Store
+Thumbs.db

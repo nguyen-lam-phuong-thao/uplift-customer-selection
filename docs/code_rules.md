@@ -1,0 +1,27 @@
+# Code Rules
+
+- Use clear and descriptive names for variables, functions, classes, and files.
+- Use `snake_case` for variables, functions, modules, and configuration keys.
+- Use `PascalCase` for classes.
+- Add type hints to reusable source-code functions.
+- Add short docstrings to public modules, classes, and functions.
+- Keep functions focused on one responsibility.
+- Prefer small readable functions, but do not split logic into unnecessary tiny helpers.
+- Avoid duplicated code between notebooks, pipelines, and applications.
+- Put reusable logic in `src/`; notebooks should mainly orchestrate, inspect, and visualize.
+- Keep dataset-specific logic separated from shared uplift-modeling logic.
+- Do not hard-code paths, column names, model parameters, or credentials when they belong in configuration.
+- Use `pathlib.Path` instead of manually concatenating path strings.
+- Never commit secrets, local environments, raw datasets, generated models, or temporary files.
+- Use Python logging for pipeline code instead of scattered `print` statements.
+- Raise clear exceptions with useful error messages.
+- Validate required columns and input assumptions at data boundaries.
+- Avoid silent error handling and broad `except Exception` blocks.
+- Keep imports grouped as standard library, third-party packages, and local modules.
+- Remove unused imports, dead code, and commented-out code.
+- Follow PEP 8 and keep formatting consistent.
+- Add tests when reusable production logic is implemented.
+- Do not create abstractions until there is a real reuse case.
+- Do not duplicate feature engineering between training and inference.
+- Ensure preprocessing used during training is saved and reused during inference.
+- Avoid data leakage by using only information available before treatment or scoring time.
