@@ -110,6 +110,22 @@ def get_tracking_config(config: dict[str, Any]) -> dict[str, Any]:
     return {"log_predictions": False, **tracking_config}
 
 
+def get_processed_data_path(
+    data_config: dict[str, Any],
+    outcome: str,
+    project_root: Path,
+) -> Path:
+    """Return the configured processed parquet path for one outcome."""
+    processed_paths = data_config.get("processed_paths")
+    if not isinstance(processed_paths, dict) or outcome not in processed_paths:
+        raise ValueError(
+            "Config data.processed_paths must define paths for visit and "
+            "conversion."
+        )
+
+    return resolve_project_path(processed_paths[outcome], project_root)
+
+
 def get_debug_config(config: dict[str, Any]) -> dict[str, Any]:
     """Return debug config with safe defaults."""
     debug_config = config.get("debug", {})
@@ -266,13 +282,6 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
     prediction_splits = get_prediction_splits(output_config)
 
     dataset_name = str(data_config["dataset_name"])
-    processed_paths = data_config.get("processed_paths")
-    if not isinstance(processed_paths, dict) or outcome not in processed_paths:
-        raise ValueError(
-            "Config data.processed_paths must define paths for visit and "
-            "conversion."
-        )
-
     feature_columns = validate_feature_columns(data_config["feature_columns"])
     treatment_column = str(data_config["treatment_column"])
     split_column = str(data_config["split_column"])
@@ -287,7 +296,7 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
     model_name = str(model_config["name"])
     model_params = dict(model_config["params"])
 
-    data_path = resolve_project_path(processed_paths[outcome], project_root)
+    data_path = get_processed_data_path(data_config, outcome, project_root)
     prediction_path = resolve_project_path(
         Path(output_config["prediction_dir"])
         / f"{outcome}_response_model_predictions.parquet",

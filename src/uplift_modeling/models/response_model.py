@@ -1,6 +1,7 @@
 """LightGBM response-model helpers for binary outcome prediction."""
 
 from typing import Any
+
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier, early_stopping, log_evaluation
