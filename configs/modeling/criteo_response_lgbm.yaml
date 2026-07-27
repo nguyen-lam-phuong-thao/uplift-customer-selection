@@ -63,3 +63,7 @@ outputs:
 
 tracking:
   log_predictions: false
+
+debug:
+  sample_rows: 1000000
+  random_state: 42
