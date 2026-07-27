@@ -116,7 +116,6 @@ def filter_evaluation_splits(predictions: pd.DataFrame) -> pd.DataFrame:
 def calculate_split_metrics(
     predictions: pd.DataFrame,
     top_fraction: float,
-    curve_num_points: int,
 ) -> list[dict[str, Any]]:
     """Calculate uplift metrics for each model and evaluation split."""
     rows: list[dict[str, Any]] = []
