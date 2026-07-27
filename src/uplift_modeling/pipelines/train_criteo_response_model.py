@@ -110,6 +110,56 @@ def get_tracking_config(config: dict[str, Any]) -> dict[str, Any]:
     return {"log_predictions": False, **tracking_config}
 
 
+def get_debug_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Return debug config with safe defaults."""
+    debug_config = config.get("debug", {})
+
+    if debug_config is None:
+        return {"sample_rows": None, "random_state": 42}
+
+    if not isinstance(debug_config, dict):
+        raise ValueError("Config section 'debug' must be a mapping.")
+
+    sample_rows = debug_config.get("sample_rows")
+    if sample_rows is not None:
+        sample_rows = int(sample_rows)
+        if sample_rows <= 0:
+            raise ValueError(
+                "debug.sample_rows must be a positive integer or null."
+            )
+
+    return {
+        "sample_rows": sample_rows,
+        "random_state": int(debug_config.get("random_state", 42)),
+    }
+
+
+def apply_debug_sample(
+    dataframe: pd.DataFrame,
+    sample_rows: int | None,
+    random_state: int,
+) -> pd.DataFrame:
+    """Optionally sample rows for faster debug runs."""
+    if sample_rows is None:
+        return dataframe
+
+    if sample_rows >= len(dataframe):
+        LOGGER.info(
+            "debug.sample_rows >= dataframe rows, using full dataframe."
+        )
+        return dataframe
+
+    LOGGER.info(
+        "Using debug sample: %s rows from %s rows",
+        sample_rows,
+        len(dataframe),
+    )
+    return dataframe.sample(
+        n=sample_rows,
+        random_state=random_state,
+    ).reset_index(drop=True)
+
+
 def validate_feature_columns(feature_columns: list[str]) -> tuple[str, ...]:
     """Validate that the response model uses only f0-f11 features."""
     expected_features = tuple(FEATURE_COLUMNS)
@@ -212,6 +262,7 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
     model_config = get_config_section(config, "model")
     output_config = get_config_section(config, "outputs")
     tracking_config = get_tracking_config(config)
+    debug_config = get_debug_config(config)
     prediction_splits = get_prediction_splits(output_config)
 
     dataset_name = str(data_config["dataset_name"])
@@ -254,6 +305,12 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
         treatment_column=treatment_column,
         split_column=split_column,
         requested_outcome=outcome,
+    )
+
+    dataframe = apply_debug_sample(
+        dataframe=dataframe,
+        sample_rows=debug_config["sample_rows"],
+        random_state=debug_config["random_state"],
     )
 
     train_frame = get_split_frame(dataframe, split_column, train_split)
@@ -328,6 +385,12 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
         "dataset_name": dataset_name,
         "outcome": outcome,
         "model_name": model_name,
+        "debug_sample_rows": (
+            "full"
+            if debug_config["sample_rows"] is None
+            else int(debug_config["sample_rows"])
+        ),
+        "debug_random_state": int(debug_config["random_state"]),
         "train_rows": int(len(train_frame)),
         "validation_rows": int(len(validation_frame)),
         "test_rows": int(len(test_frame)),
