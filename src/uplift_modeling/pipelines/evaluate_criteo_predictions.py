@@ -9,6 +9,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from uplift_modeling.artifacts.json import save_json_artifact
+from uplift_modeling.artifacts.naming import (
+    build_artifact_filename,
+    build_model_comparison_name,
+    find_latest_prediction_paths,
+    find_next_run_number,
+)
 from uplift_modeling.evaluation.uplift_metrics import (
     PREDICTION_COLUMNS,
     build_uplift_curve,
@@ -59,17 +65,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def get_prediction_paths(prediction_dir: Path, outcome: str) -> list[Path]:
-    """Return matching prediction artifacts for one outcome."""
-    paths = sorted(prediction_dir.glob(f"{outcome}_*_predictions.parquet"))
-
-    if not paths:
-        raise FileNotFoundError(
-            "No prediction parquet files found for outcome "
-            f"'{outcome}' in {prediction_dir}"
-        )
-
-    return paths
+def get_prediction_paths(
+    prediction_dir: Path,
+    db_name: str,
+    outcome: str,
+) -> list[Path]:
+    """Return the latest matching prediction artifacts for one outcome."""
+    return find_latest_prediction_paths(
+        prediction_dir=prediction_dir,
+        db_name=db_name,
+        outcome=outcome,
+    )
 
 
 def load_prediction_artifacts(prediction_paths: list[Path]) -> pd.DataFrame:

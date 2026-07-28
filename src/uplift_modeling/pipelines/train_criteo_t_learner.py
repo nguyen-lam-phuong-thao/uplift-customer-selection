@@ -8,6 +8,11 @@ import mlflow
 import mlflow.lightgbm
 import pandas as pd
 
+from uplift_modeling.artifacts.naming import (
+    build_artifact_filename,
+    find_next_run_number,
+    get_artifact_model_name,
+)
 from uplift_modeling.artifacts.predictions import (
     save_prediction_parquet_in_batches,
 )
@@ -103,12 +108,30 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
     early_stopping_rounds = int(training_config["early_stopping_rounds"])
     log_evaluation_period = int(training_config["log_evaluation_period"])
     model_name = str(model_config["name"])
+    artifact_model_name = get_artifact_model_name(model_name)
     model_params = dict(model_config["params"])
 
     data_path = get_processed_data_path(data_config, outcome, project_root)
+    prediction_dir = resolve_project_path(
+        output_config["prediction_dir"],
+        project_root,
+    )
+    run_number = find_next_run_number(
+        artifact_dirs=(prediction_dir,),
+        db_name=dataset_name,
+        outcome=outcome,
+        model_name=artifact_model_name,
+    )
     prediction_path = resolve_project_path(
-        Path(output_config["prediction_dir"])
-        / f"{outcome}_t_learner_predictions.parquet",
+        prediction_dir
+        / build_artifact_filename(
+            db_name=dataset_name,
+            outcome=outcome,
+            model_name=artifact_model_name,
+            run_number=run_number,
+            artifact_name="predictions",
+            extension="parquet",
+        ),
         project_root,
     )
 
