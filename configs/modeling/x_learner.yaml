@@ -1,0 +1,69 @@
+project:
+  experiment_name: criteo-uplift-modeling
+
+data:
+  dataset_name: criteo
+  processed_paths:
+    visit: data/processed/criteo/criteo_decision_visit.parquet
+    conversion: data/processed/criteo/criteo_decision_conversion.parquet
+
+  feature_columns:
+    - f0
+    - f1
+    - f2
+    - f3
+    - f4
+    - f5
+    - f6
+    - f7
+    - f8
+    - f9
+    - f10
+    - f11
+
+  treatment_column: treatment
+  split_column: split
+
+training:
+  train_split: train
+  validation_split: validation
+  test_split: test
+  prediction_batch_size: 500000
+  early_stopping_rounds: 100
+  log_evaluation_period: 50
+
+model:
+  name: x_learner_lgbm
+
+  params:
+    objective: binary
+    boosting_type: gbdt
+    n_estimators: 5000
+    learning_rate: 0.03
+    num_leaves: 63
+    max_depth: 8
+    min_child_samples: 500
+    subsample: 0.8
+    subsample_freq: 1
+    colsample_bytree: 0.8
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+    random_state: 42
+    n_jobs: -1
+    importance_type: gain
+    verbosity: -1
+
+outputs:
+  prediction_dir: artifacts/predictions
+  metric_dir: artifacts/metrics
+  figure_dir: artifacts/figures
+  prediction_splits:
+    - validation
+    - test
+
+tracking:
+  log_predictions: false
+
+# debug:
+#   sample_rows: 1000000
+#   random_state: 42
