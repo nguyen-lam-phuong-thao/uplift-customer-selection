@@ -1,7 +1,7 @@
 """Artifact writing for Top-K bootstrap policy evaluation."""
 
 from __future__ import annotations
-
+import pandas as pd
 import logging
 import re
 from collections.abc import Iterable
