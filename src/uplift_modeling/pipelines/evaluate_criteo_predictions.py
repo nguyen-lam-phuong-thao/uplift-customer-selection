@@ -237,26 +237,72 @@ def evaluate_predictions(
     """Evaluate local Criteo prediction artifacts."""
     project_root = get_project_root(Path(__file__))
     config = load_yaml_config(config_path)
+    data_config = get_config_section(config, "data")
     output_config = get_config_section(config, "outputs")
+    dataset_name = str(data_config["dataset_name"])
 
     prediction_dir = resolve_project_path(
         output_config["prediction_dir"],
         project_root,
     )
-    metrics_path = resolve_project_path(
-        Path(output_config["metric_dir"]) / f"{outcome}_model_evaluation.json",
+    metric_dir = resolve_project_path(
+        output_config["metric_dir"],
         project_root,
     )
-    qini_curve_path = resolve_project_path(
-        Path(output_config["figure_dir"]) / f"{outcome}_qini_curve.png",
-        project_root,
-    )
-    uplift_curve_path = resolve_project_path(
-        Path(output_config["figure_dir"]) / f"{outcome}_uplift_curve.png",
+    figure_dir = resolve_project_path(
+        output_config["figure_dir"],
         project_root,
     )
 
-    prediction_paths = get_prediction_paths(prediction_dir, outcome)
+    prediction_paths = get_prediction_paths(
+        prediction_dir=prediction_dir,
+        db_name=dataset_name,
+        outcome=outcome,
+    )
+    model_comparison_name = build_model_comparison_name(prediction_paths)
+    run_number = find_next_run_number(
+        artifact_dirs=(metric_dir, figure_dir),
+        db_name=dataset_name,
+        outcome=outcome,
+        model_name=model_comparison_name,
+    )
+    metrics_path = resolve_project_path(
+        metric_dir
+        / build_artifact_filename(
+            db_name=dataset_name,
+            outcome=outcome,
+            model_name=model_comparison_name,
+            run_number=run_number,
+            artifact_name="evaluation",
+            extension="json",
+        ),
+        project_root,
+    )
+    qini_curve_path = resolve_project_path(
+        figure_dir
+        / build_artifact_filename(
+            db_name=dataset_name,
+            outcome=outcome,
+            model_name=model_comparison_name,
+            run_number=run_number,
+            artifact_name="qini_curve",
+            extension="png",
+        ),
+        project_root,
+    )
+    uplift_curve_path = resolve_project_path(
+        figure_dir
+        / build_artifact_filename(
+            db_name=dataset_name,
+            outcome=outcome,
+            model_name=model_comparison_name,
+            run_number=run_number,
+            artifact_name="uplift_curve",
+            extension="png",
+        ),
+        project_root,
+    )
+
     predictions = filter_evaluation_splits(
         load_prediction_artifacts(prediction_paths)
     )

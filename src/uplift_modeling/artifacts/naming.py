@@ -1,7 +1,7 @@
 """Helpers for run-numbered artifact filenames."""
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 
 RUN_NUMBER_WIDTH = 2
@@ -78,7 +78,9 @@ def find_latest_prediction_paths(
     latest_by_model: dict[str, tuple[int, Path]] = {}
 
     if not prediction_dir.exists():
-        raise FileNotFoundError(f"Prediction directory does not exist: {prediction_dir}")
+        raise FileNotFoundError(
+            f"Prediction directory does not exist: {prediction_dir}"
+        )
 
     for prediction_path in prediction_dir.iterdir():
         if not prediction_path.is_file():
@@ -103,7 +105,10 @@ def find_latest_prediction_paths(
 
     return [
         prediction_path
-        for _, prediction_path in sorted(latest_by_model.values(), key=lambda item: item[1].name)
+        for _, prediction_path in sorted(
+            latest_by_model.values(),
+            key=lambda item: item[1].name,
+        )
     ]
 
 
