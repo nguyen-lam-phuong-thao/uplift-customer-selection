@@ -92,6 +92,24 @@ def parse_args() -> argparse.Namespace:
         help="Number of bootstrap resamples for Top-K confidence intervals.",
     )
     parser.add_argument(
+        "--bootstrap-splits",
+        nargs="+",
+        default=None,
+        help="Evaluation split names to bootstrap. Defaults to all splits.",
+    )
+    parser.add_argument(
+        "--bootstrap-budget-fractions",
+        nargs="+",
+        default=None,
+        type=float,
+        help="Top-K budget fractions to bootstrap. Defaults to all Top-K budgets.",
+    )
+    parser.add_argument(
+        "--skip-bootstrap",
+        action="store_true",
+        help="Skip bootstrap evaluation and the Selection Gate.",
+    )
+    parser.add_argument(
         "--topk-only",
         action="store_true",
         help="Only save Top-K policy and bootstrap evaluation artifacts.",
@@ -299,6 +317,9 @@ def evaluate_predictions(
     random_seed: int,
     n_bootstrap: int,
     topk_only: bool,
+    bootstrap_splits: tuple[str, ...] | None = None,
+    bootstrap_budget_fractions: tuple[float, ...] | None = None,
+    skip_bootstrap: bool = False,
 ) -> None:
     """Evaluate local Criteo prediction artifacts."""
     project_root = get_project_root(Path(__file__))
@@ -335,23 +356,39 @@ def evaluate_predictions(
         outcome=outcome,
         random_seed=random_seed,
     )
-    _, bootstrap_contrast_path, bootstrap_payload = save_bootstrap_policy_evaluation(
-        policy_frames=policy_frames,
-        metric_dir=metric_dir,
-        dataset_name=dataset_name,
-        outcome=outcome,
-        random_seed=random_seed,
-        n_bootstrap=n_bootstrap,
-        prediction_artifacts=policy_paths,
-        warnings=topk_warnings,
-    )
-    save_model_selection_gate(
-        metric_dir=metric_dir,
-        dataset_name=dataset_name,
-        settings=get_selection_gate_settings(config, outcome=outcome),
-        bootstrap_payload=bootstrap_payload,
-        bootstrap_json_path=bootstrap_contrast_path,
-    )
+
+    if skip_bootstrap:
+        LOGGER.info(
+            "Skipping bootstrap evaluation and Selection Gate because "
+            "--skip-bootstrap was passed."
+        )
+    else:
+        budget_fractions = (
+            TOPK_BUDGET_FRACTIONS
+            if bootstrap_budget_fractions is None
+            else bootstrap_budget_fractions
+        )
+        _, bootstrap_contrast_path, bootstrap_payload = (
+            save_bootstrap_policy_evaluation(
+                policy_frames=policy_frames,
+                metric_dir=metric_dir,
+                dataset_name=dataset_name,
+                outcome=outcome,
+                random_seed=random_seed,
+                n_bootstrap=n_bootstrap,
+                budget_fractions=budget_fractions,
+                bootstrap_splits=bootstrap_splits,
+                prediction_artifacts=policy_paths,
+                warnings=topk_warnings,
+            )
+        )
+        save_model_selection_gate(
+            metric_dir=metric_dir,
+            dataset_name=dataset_name,
+            settings=get_selection_gate_settings(config, outcome=outcome),
+            bootstrap_payload=bootstrap_payload,
+            bootstrap_json_path=bootstrap_contrast_path,
+        )
 
     if topk_only:
         return
@@ -456,6 +493,17 @@ def main() -> None:
         random_seed=args.random_seed,
         n_bootstrap=args.n_bootstrap,
         topk_only=args.topk_only,
+        bootstrap_splits=(
+            tuple(args.bootstrap_splits)
+            if args.bootstrap_splits is not None
+            else None
+        ),
+        bootstrap_budget_fractions=(
+            tuple(args.bootstrap_budget_fractions)
+            if args.bootstrap_budget_fractions is not None
+            else None
+        ),
+        skip_bootstrap=args.skip_bootstrap,
     )
 
 

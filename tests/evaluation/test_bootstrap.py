@@ -21,6 +21,7 @@ from uplift_modeling.evaluation.bootstrap_summary import (
 from uplift_modeling.evaluation.bootstrap_writer import (
     save_bootstrap_policy_evaluation as save_bootstrap_policy_evaluation_new,
 )
+from uplift_modeling.evaluation.topk_policy import TOPK_BUDGET_FRACTIONS
 from uplift_modeling.evaluation.uplift_metrics import (
     calculate_policy_value,
     calculate_selected_incremental_outcome,
@@ -218,6 +219,106 @@ def test_bootstrap_results_are_deterministic_with_fixed_seed() -> None:
     )
 
     assert first == second
+
+
+def test_bootstrap_calculation_can_be_restricted_to_validation_split() -> None:
+    """Bootstrap summaries can evaluate only the requested split."""
+    policy_rows, contrast_rows, warnings = calculate_bootstrap_policy_rows(
+        _policy_frames(),
+        budget_fractions=(0.5,),
+        n_bootstrap=4,
+        random_seed=42,
+        bootstrap_splits=("validation",),
+    )
+
+    assert warnings == []
+    assert {row["split"] for row in policy_rows} == {"validation"}
+    assert {row["split"] for row in contrast_rows} == {"validation"}
+
+
+def test_bootstrap_calculation_can_be_restricted_to_one_budget() -> None:
+    """Bootstrap summaries can evaluate only the requested budget."""
+    policy_rows, contrast_rows, warnings = calculate_bootstrap_policy_rows(
+        _policy_frames(),
+        budget_fractions=(0.05,),
+        n_bootstrap=4,
+        random_seed=42,
+    )
+
+    assert warnings == []
+    assert {row["budget_fraction"] for row in policy_rows} == {0.05}
+    assert {row["budget_fraction"] for row in contrast_rows} == {0.05}
+
+
+def test_restricted_bootstrap_artifact_records_evaluated_splits_and_budgets(
+    tmp_path,
+) -> None:
+    """Restricted bootstrap artifacts contain only requested split and budget."""
+    _, _, payload = save_bootstrap_policy_evaluation(
+        policy_frames=_policy_frames(),
+        metric_dir=tmp_path,
+        dataset_name="criteo",
+        outcome="visit",
+        random_seed=42,
+        n_bootstrap=3,
+        budget_fractions=(0.05,),
+        bootstrap_splits=("validation",),
+    )
+
+    policy_rows = payload["regular_bootstrap_metric_rows"]
+    contrast_rows = payload["paired_contrast_rows"]
+
+    assert payload["evaluated_splits"] == ["validation"]
+    assert payload["budget_fractions"] == [0.05]
+    assert payload["random_seed"] == 42
+    assert payload["n_bootstrap"] == 3
+    assert {row["split"] for row in policy_rows} == {"validation"}
+    assert {row["budget_fraction"] for row in policy_rows} == {0.05}
+    assert {row["split"] for row in contrast_rows} == {"validation"}
+    assert {row["budget_fraction"] for row in contrast_rows} == {0.05}
+
+
+def test_omitted_bootstrap_filters_preserve_existing_behavior() -> None:
+    """Omitting split and budget filters keeps the existing bootstrap output."""
+    frames = _policy_frames()
+
+    default_rows = calculate_bootstrap_policy_rows(
+        frames,
+        n_bootstrap=3,
+        random_seed=42,
+    )
+    explicit_unfiltered_rows = calculate_bootstrap_policy_rows(
+        frames,
+        budget_fractions=TOPK_BUDGET_FRACTIONS,
+        n_bootstrap=3,
+        random_seed=42,
+        bootstrap_splits=None,
+    )
+
+    assert default_rows == explicit_unfiltered_rows
+
+
+def test_invalid_bootstrap_budget_fraction_still_raises() -> None:
+    """Budget validation still rejects invalid bootstrap fractions."""
+    with pytest.raises(ValueError, match="Budget fractions"):
+        calculate_bootstrap_policy_rows(
+            _policy_frames(),
+            budget_fractions=(0.0,),
+            n_bootstrap=2,
+            random_seed=42,
+        )
+
+
+def test_requested_missing_bootstrap_split_raises_clear_error() -> None:
+    """A requested split must exist in at least one policy frame."""
+    with pytest.raises(ValueError, match="holdout"):
+        calculate_bootstrap_policy_rows(
+            _policy_frames(),
+            budget_fractions=(0.5,),
+            n_bootstrap=2,
+            random_seed=42,
+            bootstrap_splits=("holdout",),
+        )
 
 
 def test_bootstrap_compatibility_imports_match_new_modules() -> None:

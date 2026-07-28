@@ -1,6 +1,7 @@
 """Summary statistics for Top-K bootstrap policy evaluation."""
 
 import logging
+from collections.abc import Iterable
 from typing import Any
 
 import numpy as np
@@ -181,16 +182,65 @@ def summarize_bootstrap_paired_contrasts(
     return rows, warnings
 
 
+def _normalize_requested_splits(
+    bootstrap_splits: Iterable[str] | None,
+) -> tuple[str, ...] | None:
+    if bootstrap_splits is None:
+        return None
+
+    requested_splits = tuple(str(split) for split in bootstrap_splits)
+    if not requested_splits:
+        raise ValueError("At least one bootstrap split is required.")
+
+    return requested_splits
+
+
+def _filter_policy_frames_to_splits(
+    policy_frames: dict[str, pd.DataFrame],
+    bootstrap_splits: Iterable[str] | None,
+) -> dict[str, pd.DataFrame]:
+    requested_splits = _normalize_requested_splits(bootstrap_splits)
+    if requested_splits is None:
+        return policy_frames
+
+    requested_split_set = set(requested_splits)
+    available_splits = {
+        str(split)
+        for policy_frame in policy_frames.values()
+        for split in policy_frame["split"].unique()
+    }
+    missing_splits = sorted(requested_split_set.difference(available_splits))
+    if missing_splits:
+        available_text = ", ".join(sorted(available_splits)) or "none"
+        missing_text = ", ".join(missing_splits)
+        raise ValueError(
+            "Requested bootstrap split(s) are missing from policy frames: "
+            f"{missing_text}. Available splits: {available_text}."
+        )
+
+    return {
+        policy_name: policy_frame.loc[
+            policy_frame["split"].isin(requested_split_set)
+        ].copy()
+        for policy_name, policy_frame in policy_frames.items()
+    }
+
+
 def calculate_bootstrap_policy_rows(
     policy_frames: dict[str, pd.DataFrame],
     budget_fractions: tuple[float, ...] = TOPK_BUDGET_FRACTIONS,
     n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
     random_seed: int = DEFAULT_BOOTSTRAP_RANDOM_SEED,
     baseline_policy: str = DEFAULT_BASELINE_POLICY,
+    bootstrap_splits: Iterable[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Calculate regular and paired bootstrap summary rows."""
-    samples = calculate_bootstrap_policy_metric_samples(
+    filtered_policy_frames = _filter_policy_frames_to_splits(
         policy_frames=policy_frames,
+        bootstrap_splits=bootstrap_splits,
+    )
+    samples = calculate_bootstrap_policy_metric_samples(
+        policy_frames=filtered_policy_frames,
         budget_fractions=budget_fractions,
         n_bootstrap=n_bootstrap,
         random_seed=random_seed,

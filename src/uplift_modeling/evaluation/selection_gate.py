@@ -111,7 +111,7 @@ def select_champion_from_paired_contrasts(
 
     for row in explanation_rows:
         row["is_champion"] = row["policy"] == champion_policy
-        row["reason"] = _explain_policy_row(
+        row["selection_reason"] = _explain_policy_row(
             row=row,
             champion_policy=champion_policy,
             fallback_policy=settings.baseline_policy,
@@ -300,7 +300,7 @@ def _build_explanation_rows(
                 "ci_upper": row.get("ci_upper"),
                 "passed_selection_gate": ci_lower > 0.0,
                 "is_champion": False,
-                "reason": None,
+                "selection_reason": None,
             }
         )
 

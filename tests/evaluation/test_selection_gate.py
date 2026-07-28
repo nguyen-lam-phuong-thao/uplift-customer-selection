@@ -67,6 +67,8 @@ def test_selection_gate_chooses_largest_mean_delta_passing_policy() -> None:
         for row in result["explanation_rows"]
         if row["is_champion"]
     ] == ["t_learner_lgbm"]
+    assert all("selection_reason" in row for row in result["explanation_rows"])
+    assert all("reason" not in row for row in result["explanation_rows"])
 
 
 def test_selection_gate_ties_break_by_policy_name() -> None:

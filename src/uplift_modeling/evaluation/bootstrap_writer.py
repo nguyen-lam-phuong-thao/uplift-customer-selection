@@ -82,6 +82,7 @@ def save_bootstrap_policy_evaluation(
     n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
     budget_fractions: Iterable[float] = TOPK_BUDGET_FRACTIONS,
     baseline_policy: str = DEFAULT_BASELINE_POLICY,
+    bootstrap_splits: Iterable[str] | None = None,
     prediction_artifacts: dict[str, Path] | None = None,
     warnings: Iterable[str] = (),
 ) -> tuple[Path, Path, dict[str, Any]]:
@@ -97,6 +98,7 @@ def save_bootstrap_policy_evaluation(
             n_bootstrap=n_bootstrap,
             random_seed=random_seed,
             baseline_policy=baseline_policy,
+            bootstrap_splits=bootstrap_splits,
         )
     )
     policy_rows = _add_outcome_to_rows(policy_rows, outcome=outcome)
