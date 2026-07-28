@@ -18,6 +18,7 @@ from uplift_modeling.artifacts.predictions import (
 from uplift_modeling.models.x_learner import (
     fit_x_learner,
     predict_x_learner_scores,
+    summarize_values,
 )
 from uplift_modeling.pipelines.train_criteo_response_model import (
     VALID_OUTCOMES,
@@ -172,14 +173,32 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
         validation_split,
     )
 
+    LOGGER.info("Train rows: %s", len(train_frame))
+    LOGGER.info("Validation rows: %s", len(validation_frame))
+    LOGGER.info("Test rows: %s", len(test_frame))
+    LOGGER.info("Treatment train rows: %s", len(treatment_train))
+    LOGGER.info("Control train rows: %s", len(control_train))
+    LOGGER.info("Treatment validation rows: %s", len(treatment_valid))
+    LOGGER.info("Control validation rows: %s", len(control_valid))
+    LOGGER.info(
+        "Treatment train positive rate: %.6f",
+        treatment_train[target_column].mean(),
+    )
+    LOGGER.info(
+        "Control train positive rate: %.6f",
+        control_train[target_column].mean(),
+    )
+    LOGGER.info(
+        "Treatment validation positive rate: %.6f",
+        treatment_valid[target_column].mean(),
+    )
+    LOGGER.info(
+        "Control validation positive rate: %.6f",
+        control_valid[target_column].mean(),
+    )
+
     LOGGER.info("Training %s for %s", model_name, outcome)
-    (
-        treatment_model,
-        control_model,
-        treatment_effect_model,
-        control_effect_model,
-        treatment_weight,
-    ) = fit_x_learner(
+    x_learner_result = fit_x_learner(
         treatment_train=treatment_train,
         control_train=control_train,
         treatment_valid=treatment_valid,
@@ -190,6 +209,33 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
         early_stopping_rounds=early_stopping_rounds,
         log_evaluation_period=log_evaluation_period,
     )
+    LOGGER.info(
+        "Constant treatment-rate weight: %.6f",
+        x_learner_result.constant_treatment_rate_weight,
+    )
+    LOGGER.info("D1 summary: %s", x_learner_result.treatment_effect_summary)
+    LOGGER.info("D0 summary: %s", x_learner_result.control_effect_summary)
+
+    validation_scores = predict_x_learner_scores(
+        treatment_effect_model=x_learner_result.treatment_effect_model,
+        control_effect_model=x_learner_result.control_effect_model,
+        constant_treatment_rate_weight=(
+            x_learner_result.constant_treatment_rate_weight
+        ),
+        features=validation_frame.loc[:, feature_columns],
+    )
+    test_scores = predict_x_learner_scores(
+        treatment_effect_model=x_learner_result.treatment_effect_model,
+        control_effect_model=x_learner_result.control_effect_model,
+        constant_treatment_rate_weight=(
+            x_learner_result.constant_treatment_rate_weight
+        ),
+        features=test_frame.loc[:, feature_columns],
+    )
+    validation_score_summary = summarize_values(validation_scores)
+    test_score_summary = summarize_values(test_scores)
+    LOGGER.info("Validation score summary: %s", validation_score_summary)
+    LOGGER.info("Test score summary: %s", test_score_summary)
 
     save_prediction_parquet_in_batches(
         dataframes=tuple(split_frames[split] for split in prediction_splits),
@@ -201,9 +247,11 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
         model_name=model_name,
         batch_size=prediction_batch_size,
         score_batch=lambda X_batch: predict_x_learner_scores(
-            treatment_effect_model=treatment_effect_model,
-            control_effect_model=control_effect_model,
-            treatment_weight=treatment_weight,
+            treatment_effect_model=x_learner_result.treatment_effect_model,
+            control_effect_model=x_learner_result.control_effect_model,
+            constant_treatment_rate_weight=(
+                x_learner_result.constant_treatment_rate_weight
+            ),
             features=X_batch,
         ),
     )
@@ -231,30 +279,66 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
         "test_rows": int(len(test_frame)),
         "treatment_train_rows": int(len(treatment_train)),
         "control_train_rows": int(len(control_train)),
-        "treatment_weight": float(treatment_weight),
+        "constant_treatment_rate_weight": float(
+            x_learner_result.constant_treatment_rate_weight
+        ),
         **model_params,
+    }
+    mlflow_metrics = {
+        "treatment_train_positive_rate": float(
+            treatment_train[target_column].mean()
+        ),
+        "control_train_positive_rate": float(
+            control_train[target_column].mean()
+        ),
+        "treatment_validation_positive_rate": float(
+            treatment_valid[target_column].mean()
+        ),
+        "control_validation_positive_rate": float(
+            control_valid[target_column].mean()
+        ),
+        "constant_treatment_rate_weight": float(
+            x_learner_result.constant_treatment_rate_weight
+        ),
+        **{
+            f"d1_{key}": float(value)
+            for key, value in x_learner_result.treatment_effect_summary.items()
+        },
+        **{
+            f"d0_{key}": float(value)
+            for key, value in x_learner_result.control_effect_summary.items()
+        },
+        **{
+            f"validation_score_{key}": float(value)
+            for key, value in validation_score_summary.items()
+        },
+        **{
+            f"test_score_{key}": float(value)
+            for key, value in test_score_summary.items()
+        },
     }
 
     with mlflow.start_run(run_name=f"{outcome}_{model_name}"):
         mlflow.log_params(mlflow_params)
+        mlflow.log_metrics(mlflow_metrics)
 
         if bool(tracking_config["log_predictions"]):
             mlflow.log_artifact(str(prediction_path))
 
         mlflow.lightgbm.log_model(
-            treatment_model,
+            x_learner_result.treatment_model,
             artifact_path="mu1_model",
         )
         mlflow.lightgbm.log_model(
-            control_model,
+            x_learner_result.control_model,
             artifact_path="mu0_model",
         )
         mlflow.lightgbm.log_model(
-            treatment_effect_model,
+            x_learner_result.treatment_effect_model,
             artifact_path="tau1_model",
         )
         mlflow.lightgbm.log_model(
-            control_effect_model,
+            x_learner_result.control_effect_model,
             artifact_path="tau0_model",
         )
 

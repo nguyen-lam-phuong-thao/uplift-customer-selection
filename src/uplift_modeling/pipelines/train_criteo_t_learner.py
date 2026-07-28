@@ -240,9 +240,24 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
         "control_train_rows": int(len(control_train)),
         **model_params,
     }
+    mlflow_metrics = {
+        "treatment_train_positive_rate": float(
+            treatment_train[target_column].mean()
+        ),
+        "control_train_positive_rate": float(
+            control_train[target_column].mean()
+        ),
+        "treatment_validation_positive_rate": float(
+            treatment_valid[target_column].mean()
+        ),
+        "control_validation_positive_rate": float(
+            control_valid[target_column].mean()
+        ),
+    }
 
     with mlflow.start_run(run_name=f"{outcome}_{model_name}"):
         mlflow.log_params(mlflow_params)
+        mlflow.log_metrics(mlflow_metrics)
 
         if bool(tracking_config["log_predictions"]):
             mlflow.log_artifact(str(prediction_path))

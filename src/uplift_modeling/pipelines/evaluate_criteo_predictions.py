@@ -15,6 +15,23 @@ from uplift_modeling.artifacts.naming import (
     find_latest_prediction_paths,
     find_next_run_number,
 )
+from uplift_modeling.evaluation.bootstrap import (
+    BOOTSTRAP_METRICS,
+    DEFAULT_BASELINE_POLICY,
+    DEFAULT_N_BOOTSTRAP,
+)
+from uplift_modeling.evaluation.bootstrap_writer import (
+    save_bootstrap_policy_evaluation,
+)
+from uplift_modeling.evaluation.selection_gate import (
+    SelectionGateSettings,
+    save_model_selection_gate,
+)
+from uplift_modeling.evaluation.topk_policy import (
+    TOPK_BUDGET_FRACTIONS,
+    prepare_topk_policy_frames,
+    save_topk_policy_evaluation_artifacts,
+)
 from uplift_modeling.evaluation.uplift_metrics import (
     PREDICTION_COLUMNS,
     build_uplift_curve,
@@ -61,6 +78,23 @@ def parse_args() -> argparse.Namespace:
         default=100,
         type=int,
         help="Maximum number of points to plot in each curve.",
+    )
+    parser.add_argument(
+        "--random-seed",
+        default=42,
+        type=int,
+        help="Random seed for deterministic random targeting.",
+    )
+    parser.add_argument(
+        "--n-bootstrap",
+        default=DEFAULT_N_BOOTSTRAP,
+        type=int,
+        help="Number of bootstrap resamples for Top-K confidence intervals.",
+    )
+    parser.add_argument(
+        "--topk-only",
+        action="store_true",
+        help="Only save Top-K policy and bootstrap evaluation artifacts.",
     )
     return parser.parse_args()
 
@@ -152,6 +186,35 @@ def calculate_split_metrics(
     return rows
 
 
+def get_selection_gate_settings(
+    config: dict[str, Any],
+    outcome: str,
+) -> SelectionGateSettings:
+    """Return configured primary model-selection settings."""
+    selection_config = config.get("selection", {})
+    if selection_config is None:
+        selection_config = {}
+    if not isinstance(selection_config, dict):
+        raise ValueError(
+            "Config section 'selection' must be a mapping when present."
+        )
+
+    return SelectionGateSettings(
+        outcome=str(selection_config.get("primary_outcome", outcome)),
+        split=str(selection_config.get("primary_split", EVALUATION_SPLITS[0])),
+        budget_fraction=float(
+            selection_config.get(
+                "primary_budget_fraction",
+                TOPK_BUDGET_FRACTIONS[1],
+            )
+        ),
+        metric=str(selection_config.get("primary_metric", BOOTSTRAP_METRICS[0])),
+        baseline_policy=str(
+            selection_config.get("baseline_policy", DEFAULT_BASELINE_POLICY)
+        ),
+    )
+
+
 def save_qini_curve(
     predictions: pd.DataFrame,
     output_path: Path,
@@ -233,6 +296,9 @@ def evaluate_predictions(
     outcome: str,
     top_fraction: float,
     curve_num_points: int,
+    random_seed: int,
+    n_bootstrap: int,
+    topk_only: bool,
 ) -> None:
     """Evaluate local Criteo prediction artifacts."""
     project_root = get_project_root(Path(__file__))
@@ -253,6 +319,42 @@ def evaluate_predictions(
         output_config["figure_dir"],
         project_root,
     )
+
+    policy_frames, policy_paths, topk_warnings = prepare_topk_policy_frames(
+        prediction_dir=prediction_dir,
+        dataset_name=dataset_name,
+        outcome=outcome,
+        random_seed=random_seed,
+    )
+    save_topk_policy_evaluation_artifacts(
+        policy_frames=policy_frames,
+        policy_paths=policy_paths,
+        warnings=topk_warnings,
+        metric_dir=metric_dir,
+        dataset_name=dataset_name,
+        outcome=outcome,
+        random_seed=random_seed,
+    )
+    _, bootstrap_contrast_path, bootstrap_payload = save_bootstrap_policy_evaluation(
+        policy_frames=policy_frames,
+        metric_dir=metric_dir,
+        dataset_name=dataset_name,
+        outcome=outcome,
+        random_seed=random_seed,
+        n_bootstrap=n_bootstrap,
+        prediction_artifacts=policy_paths,
+        warnings=topk_warnings,
+    )
+    save_model_selection_gate(
+        metric_dir=metric_dir,
+        dataset_name=dataset_name,
+        settings=get_selection_gate_settings(config, outcome=outcome),
+        bootstrap_payload=bootstrap_payload,
+        bootstrap_json_path=bootstrap_contrast_path,
+    )
+
+    if topk_only:
+        return
 
     prediction_paths = get_prediction_paths(
         prediction_dir=prediction_dir,
@@ -351,6 +453,9 @@ def main() -> None:
         outcome=args.outcome,
         top_fraction=args.top_fraction,
         curve_num_points=args.curve_num_points,
+        random_seed=args.random_seed,
+        n_bootstrap=args.n_bootstrap,
+        topk_only=args.topk_only,
     )
 
 

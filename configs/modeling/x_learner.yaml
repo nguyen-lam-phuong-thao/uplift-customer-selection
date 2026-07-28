@@ -61,6 +61,13 @@ outputs:
     - validation
     - test
 
+selection:
+  primary_outcome: visit
+  primary_split: validation
+  primary_budget_fraction: 0.05
+  primary_metric: policy_value
+  baseline_policy: treated_response_lgbm
+
 tracking:
   log_predictions: false
 

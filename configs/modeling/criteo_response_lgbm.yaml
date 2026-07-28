@@ -33,7 +33,7 @@ training:
   log_evaluation_period: 50
 
 model:
-  name: response_model_lgbm
+  name: treated_response_lgbm
 
   params:
     objective: binary
@@ -60,6 +60,13 @@ outputs:
   prediction_splits:
     - validation
     - test
+
+selection:
+  primary_outcome: visit
+  primary_split: validation
+  primary_budget_fraction: 0.05
+  primary_metric: policy_value
+  baseline_policy: treated_response_lgbm
 
 tracking:
   log_predictions: false

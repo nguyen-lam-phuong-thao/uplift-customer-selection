@@ -197,44 +197,6 @@ def validate_feature_columns(feature_columns: list[str]) -> tuple[str, ...]:
     return configured_features
 
 
-def get_parquet_columns(parquet_path: Path) -> set[str]:
-    """Read parquet schema columns without loading the full dataset."""
-    if not parquet_path.exists():
-        raise FileNotFoundError(f"Input parquet does not exist: {parquet_path}")
-
-    schema = pq.read_schema(parquet_path)
-    return set(schema.names)
-
-
-def resolve_target_column(
-    requested_outcome: str,
-    available_columns: set[str],
-) -> str:
-    """Choose the requested outcome column or generic outcome fallback."""
-    if requested_outcome in available_columns:
-        return requested_outcome
-
-    if "outcome" in available_columns:
-        return "outcome"
-
-    raise ValueError(
-        "Input parquet is missing the requested outcome column "
-        f"'{requested_outcome}' and fallback column 'outcome'."
-    )
-
-
-def validate_required_columns(
-    available_columns: set[str],
-    required_columns: tuple[str, ...],
-) -> None:
-    """Raise a clear error when required parquet columns are missing."""
-    missing_columns = sorted(set(required_columns).difference(available_columns))
-
-    if missing_columns:
-        missing_text = ", ".join(missing_columns)
-        raise ValueError(f"Input parquet is missing columns: {missing_text}")
-
-
 def load_training_frame(
     parquet_path: Path,
     feature_columns: tuple[str, ...],
@@ -243,15 +205,32 @@ def load_training_frame(
     requested_outcome: str,
 ) -> tuple[pd.DataFrame, str]:
     """Load only columns required for Criteo response-model training."""
-    available_columns = get_parquet_columns(parquet_path)
-    target_column = resolve_target_column(requested_outcome, available_columns)
+    if not parquet_path.exists():
+        raise FileNotFoundError(f"Input parquet does not exist: {parquet_path}")
+
+    available_columns = set(pq.read_schema(parquet_path).names)
+
+    if requested_outcome in available_columns:
+        target_column = requested_outcome
+    elif "outcome" in available_columns:
+        target_column = "outcome"
+    else:
+        raise ValueError(
+            "Input parquet is missing the requested outcome column "
+            f"'{requested_outcome}' and fallback column 'outcome'."
+        )
+
     required_columns = (
         *feature_columns,
         treatment_column,
         split_column,
         target_column,
     )
-    validate_required_columns(available_columns, required_columns)
+    missing_columns = sorted(set(required_columns).difference(available_columns))
+
+    if missing_columns:
+        missing_text = ", ".join(missing_columns)
+        raise ValueError(f"Input parquet is missing columns: {missing_text}")
 
     LOGGER.info("Loading training data from %s", parquet_path)
     dataframe = pd.read_parquet(parquet_path, columns=list(required_columns))
@@ -368,15 +347,44 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
         "validation": validation_frame,
         "test": test_frame,
     }
+    treated_train_frame = train_frame.loc[
+        train_frame[treatment_column] == 1
+    ].copy()
+    treated_validation_frame = validation_frame.loc[
+        validation_frame[treatment_column] == 1
+    ].copy()
+
+    assert len(treated_train_frame) > 0, (
+        f"Split '{train_split}' has no treated rows for response-model fitting."
+    )
+    assert len(treated_validation_frame) > 0, (
+        f"Split '{validation_split}' has no treated rows for early stopping."
+    )
+    assert treatment_column not in feature_columns
+
+    treatment_fit_ratio = len(treated_train_frame) / len(train_frame)
+
+    LOGGER.info("Full training rows: %s", len(train_frame))
+    LOGGER.info(
+        "Treated training rows used for fitting: %s",
+        len(treated_train_frame),
+    )
+    LOGGER.info("Treatment ratio used for fitting: %.6f", treatment_fit_ratio)
+    LOGGER.info("Full validation rows: %s", len(validation_frame))
+    LOGGER.info(
+        "Treated validation rows used for early stopping: %s",
+        len(treated_validation_frame),
+    )
+    LOGGER.info("Full test rows: %s", len(test_frame))
 
     LOGGER.info("Training %s for %s", model_name, outcome)
     model = build_response_model(model_params)
     fit_response_model(
         model=model,
-        X_train=train_frame.loc[:, feature_columns],
-        y_train=train_frame[target_column],
-        X_valid=validation_frame.loc[:, feature_columns],
-        y_valid=validation_frame[target_column],
+        X_train=treated_train_frame.loc[:, feature_columns],
+        y_train=treated_train_frame[target_column],
+        X_valid=treated_validation_frame.loc[:, feature_columns],
+        y_valid=treated_validation_frame[target_column],
         early_stopping_rounds=early_stopping_rounds,
         log_evaluation_period=log_evaluation_period,
     )

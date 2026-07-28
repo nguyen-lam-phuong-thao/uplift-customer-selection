@@ -6,6 +6,7 @@ import pytest
 from uplift_modeling.evaluation.uplift_metrics import (
     build_uplift_curve,
     calculate_policy_value,
+    calculate_selected_incremental_outcome,
     calculate_uplift_metrics,
     validate_prediction_frame,
 )
@@ -132,3 +133,13 @@ def test_calculate_policy_value_rejects_invalid_top_fraction() -> None:
     """Policy value requires a valid selected population fraction."""
     with pytest.raises(ValueError, match="top_fraction"):
         calculate_policy_value(_prediction_frame(), top_fraction=0)
+
+
+def test_calculate_selected_incremental_outcome_uses_top_subset_formula() -> None:
+    """Selected incremental outcome is rate difference times selected count."""
+    value = calculate_selected_incremental_outcome(
+        _prediction_frame(),
+        top_fraction=0.5,
+    )
+
+    assert value == pytest.approx(2.0)

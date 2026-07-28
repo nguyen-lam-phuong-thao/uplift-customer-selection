@@ -6,6 +6,7 @@ scores are expected to be uplift scores.
 """
 
 from collections.abc import Iterable
+import logging
 
 import numpy as np
 import pandas as pd
@@ -19,6 +20,10 @@ PREDICTION_COLUMNS: tuple[str, ...] = (
     "score",
     "model_name",
 )
+
+
+LOGGER = logging.getLogger(__name__)
+ROW_ID_COLUMN = "row_id"
 
 
 def validate_prediction_frame(
@@ -73,11 +78,40 @@ def validate_prediction_frame(
         )
 
 
+def rank_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
+    """Return predictions ordered by score with stable tie handling."""
+    if ROW_ID_COLUMN in predictions.columns:
+        return predictions.sort_values(
+            ["score", ROW_ID_COLUMN],
+            ascending=[False, True],
+            kind="mergesort",
+        ).reset_index(drop=True)
+
+    tied_score_rows = int(predictions["score"].duplicated(keep=False).sum())
+    if tied_score_rows:
+        LOGGER.info(
+            "Score tie diagnostics: %s tied rows across %s unique scores.",
+            tied_score_rows,
+            predictions["score"].nunique(),
+        )
+
+    return predictions.sort_values(
+        "score",
+        ascending=False,
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
 def build_uplift_curve(
     predictions: pd.DataFrame,
     num_points: int | None = 100,
 ) -> pd.DataFrame:
-    """Build a sampled cumulative curve ordered by descending ranking score."""
+    """Build a sampled cumulative Qini-style gain curve.
+
+    `cumulative_incremental_outcome` uses Qini-style gain:
+    treated_outcome - control_outcome * treated_count / control_count.
+    It is not `(treated_rate - control_rate) * selected_population_size`.
+    """
     validate_prediction_frame(predictions)
 
     if num_points is not None and num_points <= 0:
@@ -86,11 +120,7 @@ def build_uplift_curve(
             f"Received: {num_points}"
         )
 
-    ranked = predictions.sort_values(
-        "score",
-        ascending=False,
-        kind="mergesort",
-    ).reset_index(drop=True)
+    ranked = rank_predictions(predictions)
 
     treatment = ranked["treatment"].to_numpy(dtype=float)
     outcome = ranked["outcome"].to_numpy(dtype=float)
@@ -159,7 +189,7 @@ def _trapezoid_area(
 
 
 def calculate_auuc(curve: pd.DataFrame) -> float:
-    """Calculate area under the cumulative incremental outcome curve."""
+    """Calculate area under the Qini-style cumulative gain curve."""
     population_fraction = np.insert(
         curve["population_fraction"].to_numpy(),
         0,
@@ -199,10 +229,11 @@ def calculate_policy_value(
     predictions: pd.DataFrame,
     top_fraction: float = 0.3,
 ) -> float:
-    """Estimate outcome-based policy value for treating top-ranked rows.
+    """Estimate IPW-style policy value for treating top-ranked rows.
 
-    This is not final net business value. It uses observed outcomes and the
-    treatment rate, without value-per-outcome or contact-cost adjustments.
+    The policy treats selected top-ranked rows and does not treat unselected
+    rows. This is not the same as simple top-subset incremental outcome and is
+    not final net business value.
     """
     validate_prediction_frame(predictions)
 
@@ -212,11 +243,7 @@ def calculate_policy_value(
             f"Received: {top_fraction}"
         )
 
-    ranked = predictions.sort_values(
-        "score",
-        ascending=False,
-        kind="mergesort",
-    ).reset_index(drop=True)
+    ranked = rank_predictions(predictions)
     selected_count = max(1, int(np.ceil(len(ranked) * top_fraction)))
     selected = np.zeros(len(ranked), dtype=bool)
     selected[:selected_count] = True
@@ -224,6 +251,11 @@ def calculate_policy_value(
     treatment = ranked["treatment"].to_numpy(dtype=float)
     outcome = ranked["outcome"].to_numpy(dtype=float)
     treatment_rate = float(treatment.mean())
+    if treatment_rate <= 0.0 or treatment_rate >= 1.0:
+        raise ValueError(
+            "treatment rate must be strictly between 0 and 1. "
+            f"Received: {treatment_rate}"
+        )
 
     treated_match = selected & (treatment == 1.0)
     control_match = ~selected & (treatment == 0.0)
@@ -233,6 +265,37 @@ def calculate_policy_value(
     ) / len(ranked)
 
     return float(value)
+
+
+def calculate_selected_incremental_outcome(
+    predictions: pd.DataFrame,
+    top_fraction: float = 0.3,
+) -> float:
+    """Calculate simple top-subset incremental outcome.
+
+    The formula is:
+    (mean_outcome_treated - mean_outcome_control) * selected_count.
+    """
+    validate_prediction_frame(predictions)
+
+    if top_fraction <= 0 or top_fraction > 1:
+        raise ValueError(
+            "top_fraction must be greater than 0 and at most 1. "
+            f"Received: {top_fraction}"
+        )
+
+    ranked = rank_predictions(predictions)
+    selected_count = max(1, int(np.ceil(len(ranked) * top_fraction)))
+    selected = ranked.iloc[:selected_count]
+    treated = selected.loc[selected["treatment"] == 1, "outcome"]
+    control = selected.loc[selected["treatment"] == 0, "outcome"]
+
+    if treated.empty or control.empty:
+        raise ValueError(
+            "Selected rows must contain both treatment and control rows."
+        )
+
+    return float((treated.mean() - control.mean()) * selected_count)
 
 
 def calculate_uplift_metrics(
