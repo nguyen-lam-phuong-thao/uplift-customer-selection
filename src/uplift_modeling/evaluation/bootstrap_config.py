@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 
-DEFAULT_N_BOOTSTRAP = 1000
+DEFAULT_N_BOOTSTRAP = 100
 DEFAULT_BOOTSTRAP_RANDOM_SEED = 42
 DEFAULT_BASELINE_POLICY = "treated_response_lgbm"
 BOOTSTRAP_METRICS: tuple[str, ...] = (
