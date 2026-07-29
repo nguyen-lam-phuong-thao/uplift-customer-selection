@@ -208,7 +208,7 @@ def get_selection_gate_settings(
     config: dict[str, Any],
     outcome: str,
 ) -> SelectionGateSettings:
-    """Return configured primary model-selection settings."""
+    """Return model-selection settings for the current evaluated outcome."""
     selection_config = config.get("selection", {})
     if selection_config is None:
         selection_config = {}
@@ -218,7 +218,7 @@ def get_selection_gate_settings(
         )
 
     return SelectionGateSettings(
-        outcome=str(selection_config.get("primary_outcome", outcome)),
+        outcome=outcome,
         split=str(selection_config.get("primary_split", EVALUATION_SPLITS[0])),
         budget_fraction=float(
             selection_config.get(

@@ -157,3 +157,84 @@ def test_evaluate_predictions_passes_bootstrap_filters(
 
     assert captured_bootstrap_kwargs["bootstrap_splits"] == ("validation",)
     assert captured_bootstrap_kwargs["budget_fractions"] == (0.05,)
+
+
+def test_selection_gate_uses_current_cli_outcome(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Selection Gate uses the outcome being evaluated, not stale YAML outcome."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "data:",
+                "  dataset_name: criteo",
+                "outputs:",
+                f"  prediction_dir: {tmp_path / 'predictions'}",
+                f"  metric_dir: {tmp_path / 'metrics'}",
+                f"  figure_dir: {tmp_path / 'figures'}",
+                "selection:",
+                "  primary_outcome: visit",
+                "  primary_split: validation",
+                "  primary_budget_fraction: 0.05",
+                "  primary_metric: policy_value",
+                "  baseline_policy: treated_response_lgbm",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    captured_selection_kwargs = {}
+
+    def fake_prepare_topk_policy_frames(**kwargs):
+        return {"policy": object()}, {"policy": tmp_path / "pred.parquet"}, []
+
+    def fake_save_topk_policy_evaluation_artifacts(**kwargs):
+        return tmp_path / "topk.json", {}
+
+    def fake_save_bootstrap_policy_evaluation(**kwargs):
+        return (
+            tmp_path / "bootstrap_policy.json",
+            tmp_path / "bootstrap_contrast.json",
+            {"paired_contrast_rows": []},
+        )
+
+    def fake_save_model_selection_gate(**kwargs):
+        captured_selection_kwargs.update(kwargs)
+        return tmp_path / "selection.json", {}
+
+    monkeypatch.setattr(
+        pipeline,
+        "prepare_topk_policy_frames",
+        fake_prepare_topk_policy_frames,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_topk_policy_evaluation_artifacts",
+        fake_save_topk_policy_evaluation_artifacts,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_bootstrap_policy_evaluation",
+        fake_save_bootstrap_policy_evaluation,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_model_selection_gate",
+        fake_save_model_selection_gate,
+    )
+
+    pipeline.evaluate_predictions(
+        config_path=config_path,
+        outcome="conversion",
+        top_fraction=0.3,
+        curve_num_points=100,
+        random_seed=42,
+        n_bootstrap=3,
+        topk_only=True,
+    )
+
+    settings = captured_selection_kwargs["settings"]
+    assert settings.outcome == "conversion"
+    assert settings.split == "validation"
+    assert settings.budget_fraction == 0.05
