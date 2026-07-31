@@ -9,6 +9,10 @@ from uplift_modeling.artifacts.manifest import (
     load_experiment_manifest,
     resolve_prediction_paths,
 )
+from uplift_modeling.data.dataset_spec import (
+    get_dataset_spec,
+    validate_supported_outcome,
+)
 from uplift_modeling.evaluation.bootstrap_config import DEFAULT_BASELINE_POLICY
 from uplift_modeling.evaluation.locked_test import save_locked_test_evaluation
 from uplift_modeling.utils.config import (
@@ -20,7 +24,6 @@ from uplift_modeling.utils.config import (
 
 
 LOGGER = logging.getLogger(__name__)
-VALID_OUTCOMES = ("visit", "conversion")
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,7 +49,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--outcome",
         default="visit",
-        choices=VALID_OUTCOMES,
         help="Outcome to evaluate. Defaults to visit.",
     )
     return parser.parse_args()
@@ -76,7 +78,9 @@ def evaluate_locked_test(
     config = load_yaml_config(config_path)
     data_config = get_config_section(config, "data")
     output_config = get_config_section(config, "outputs")
-    dataset_name = str(data_config["dataset_name"])
+    dataset_spec = get_dataset_spec(str(data_config["dataset_name"]))
+    dataset_name = dataset_spec.name
+    validate_supported_outcome(dataset_spec, outcome)
     manifest = load_experiment_manifest(manifest_path)
     manifest_prediction_paths = resolve_prediction_paths(
         manifest=manifest,

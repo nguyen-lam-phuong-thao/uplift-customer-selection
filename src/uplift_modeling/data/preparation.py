@@ -1,13 +1,15 @@
-"""Dataset preparation decisions for Phase 1 Criteo modeling."""
+"""Dataset preparation decisions for uplift modeling."""
 
 from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from uplift_modeling.data.criteo import FEATURE_COLUMNS
+from uplift_modeling.data.dataset_spec import (
+    DatasetSpec,
+    validate_supported_outcome,
+)
 from uplift_modeling.data.row_id import (
-    ROW_ID_COLUMN,
     add_row_id,
     validate_row_id_column,
 )
@@ -22,7 +24,7 @@ def _validate_columns(
     if missing_columns:
         missing_columns_text = ", ".join(missing_columns)
         raise ValueError(
-            "Cannot build Criteo decision dataset because columns are missing: "
+            "Cannot build decision dataset because columns are missing: "
             f"{missing_columns_text}"
         )
 
@@ -77,9 +79,7 @@ def _joint_stratification_key(
 
 def build_decision_frame(
     dataframe: pd.DataFrame,
-    feature_columns: tuple[str, ...] = FEATURE_COLUMNS,
-    treatment_column: str = "treatment",
-    outcome_columns: tuple[str, ...] = ("visit", "conversion"),
+    dataset_spec: DatasetSpec,
 ) -> pd.DataFrame:
     """Select columns approved by Layer 3 decisions.
 
@@ -87,42 +87,50 @@ def build_decision_frame(
     and outcomes. It intentionally excludes `exposure` because it is observed
     after treatment and is leakage-prone.
     """
-    selected_columns = (*feature_columns, treatment_column, *outcome_columns)
+    selected_columns = (
+        *dataset_spec.feature_columns,
+        dataset_spec.treatment_column,
+        *dataset_spec.outcome_columns,
+    )
 
-    if ROW_ID_COLUMN in dataframe.columns:
-        selected_columns = (ROW_ID_COLUMN, *selected_columns)
+    if dataset_spec.row_id_column in dataframe.columns:
+        selected_columns = (dataset_spec.row_id_column, *selected_columns)
 
     _validate_columns(dataframe, selected_columns)
-    return add_row_id(dataframe.loc[:, selected_columns])
+    return add_row_id(
+        dataframe.loc[:, selected_columns],
+        row_id_column=dataset_spec.row_id_column,
+    )
 
 
 def assign_stratified_split(
     dataframe: pd.DataFrame,
     outcome_column: str,
-    treatment_column: str = "treatment",
+    dataset_spec: DatasetSpec,
     train_size: float = 0.6,
     validation_size: float = 0.2,
     test_size: float = 0.2,
     random_state: int = 42,
-    split_column: str = "split",
 ) -> pd.DataFrame:
     """Assign deterministic train, validation, and test labels.
 
     Splits are stratified by treatment and the selected outcome.
     """
+    validate_supported_outcome(dataset_spec, outcome_column)
     _validate_split_sizes(train_size, validation_size, test_size)
-    _validate_columns(dataframe, (treatment_column, outcome_column))
+    _validate_columns(dataframe, (dataset_spec.treatment_column, outcome_column))
 
     decision_dataset = dataframe.copy()
     validate_row_id_column(
         decision_dataset,
+        row_id_column=dataset_spec.row_id_column,
         context="Decision dataset",
     )
 
     row_positions = np.arange(len(decision_dataset))
     stratification_key = _joint_stratification_key(
         decision_dataset,
-        treatment_column=treatment_column,
+        treatment_column=dataset_spec.treatment_column,
         outcome_column=outcome_column,
     )
 
@@ -137,7 +145,7 @@ def assign_stratified_split(
     holdout_dataset = decision_dataset.iloc[holdout_positions]
     holdout_stratification_key = _joint_stratification_key(
         holdout_dataset,
-        treatment_column=treatment_column,
+        treatment_column=dataset_spec.treatment_column,
         outcome_column=outcome_column,
     )
 
@@ -158,31 +166,38 @@ def assign_stratified_split(
     split_values[validation_positions] = "validation"
     split_values[test_positions] = "test"
 
-    decision_dataset[split_column] = split_values
+    decision_dataset[dataset_spec.split_column] = split_values
     return decision_dataset
 
 
 def build_decision_dataset(
     dataframe: pd.DataFrame,
     outcome_column: str,
-    feature_columns: tuple[str, ...] = FEATURE_COLUMNS,
-    treatment_column: str = "treatment",
+    dataset_spec: DatasetSpec,
     train_size: float = 0.6,
     validation_size: float = 0.2,
     test_size: float = 0.2,
     random_state: int = 42,
 ) -> pd.DataFrame:
-    """Build one outcome-specific Criteo decision dataset."""
-    selected_columns = (*feature_columns, treatment_column, outcome_column)
-    if ROW_ID_COLUMN in dataframe.columns:
-        selected_columns = (ROW_ID_COLUMN, *selected_columns)
+    """Build one outcome-specific decision dataset."""
+    validate_supported_outcome(dataset_spec, outcome_column)
+    selected_columns = (
+        *dataset_spec.feature_columns,
+        dataset_spec.treatment_column,
+        outcome_column,
+    )
+    if dataset_spec.row_id_column in dataframe.columns:
+        selected_columns = (dataset_spec.row_id_column, *selected_columns)
     _validate_columns(dataframe, selected_columns)
 
-    outcome_dataset = add_row_id(dataframe.loc[:, selected_columns])
+    outcome_dataset = add_row_id(
+        dataframe.loc[:, selected_columns],
+        row_id_column=dataset_spec.row_id_column,
+    )
     return assign_stratified_split(
         outcome_dataset,
         outcome_column=outcome_column,
-        treatment_column=treatment_column,
+        dataset_spec=dataset_spec,
         train_size=train_size,
         validation_size=validation_size,
         test_size=test_size,

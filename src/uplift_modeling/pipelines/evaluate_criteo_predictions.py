@@ -18,6 +18,10 @@ from uplift_modeling.artifacts.naming import (
     build_model_comparison_name,
     find_next_run_number,
 )
+from uplift_modeling.data.dataset_spec import (
+    get_dataset_spec,
+    validate_supported_outcome,
+)
 from uplift_modeling.data.row_id import align_frames_by_row_id
 from uplift_modeling.evaluation.bootstrap import (
     BOOTSTRAP_METRICS,
@@ -54,7 +58,6 @@ from uplift_modeling.utils.config import (
 
 
 LOGGER = logging.getLogger(__name__)
-VALID_OUTCOMES = ("visit", "conversion")
 EVALUATION_SPLITS = DEFAULT_EVALUATION_SPLITS
 
 
@@ -76,7 +79,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--outcome",
         default="visit",
-        choices=VALID_OUTCOMES,
         help="Outcome to evaluate. Defaults to visit.",
     )
     parser.add_argument(
@@ -362,7 +364,9 @@ def evaluate_predictions(
     config = load_yaml_config(config_path)
     data_config = get_config_section(config, "data")
     output_config = get_config_section(config, "outputs")
-    dataset_name = str(data_config["dataset_name"])
+    dataset_spec = get_dataset_spec(str(data_config["dataset_name"]))
+    dataset_name = dataset_spec.name
+    validate_supported_outcome(dataset_spec, outcome)
     bootstrap_splits = get_bootstrap_splits(bootstrap_splits)
     manifest = load_experiment_manifest(manifest_path)
     manifest_prediction_paths = resolve_prediction_paths(

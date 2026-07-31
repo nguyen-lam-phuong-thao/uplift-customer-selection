@@ -7,23 +7,6 @@ data:
     visit: data/processed/criteo/criteo_decision_visit.parquet
     conversion: data/processed/criteo/criteo_decision_conversion.parquet
 
-  feature_columns:
-    - f0
-    - f1
-    - f2
-    - f3
-    - f4
-    - f5
-    - f6
-    - f7
-    - f8
-    - f9
-    - f10
-    - f11
-
-  treatment_column: treatment
-  split_column: split
-
 training:
   train_split: train
   validation_split: validation

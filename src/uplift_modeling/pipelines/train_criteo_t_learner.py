@@ -21,7 +21,6 @@ from uplift_modeling.models.t_learner import (
     predict_t_learner_scores,
 )
 from uplift_modeling.pipelines.train_criteo_response_model import (
-    VALID_OUTCOMES,
     apply_debug_sample,
     get_debug_config,
     get_prediction_splits,
@@ -29,7 +28,7 @@ from uplift_modeling.pipelines.train_criteo_response_model import (
     get_split_frame,
     get_tracking_config,
     load_training_frame,
-    validate_feature_columns,
+    resolve_dataset_spec,
     validate_outcome,
 )
 from uplift_modeling.tracking.mlflow_tracking import setup_mlflow
@@ -59,7 +58,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--outcome",
         default="visit",
-        choices=VALID_OUTCOMES,
         help="Outcome to model. Defaults to visit.",
     )
     return parser.parse_args()
@@ -83,7 +81,6 @@ def get_treatment_group(
 
 def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
     """Run the configured Criteo T-Learner training pipeline."""
-    validate_outcome(outcome)
     project_root = get_project_root(Path(__file__))
     config = load_yaml_config(config_path)
 
@@ -95,10 +92,12 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
     debug_config = get_debug_config(config)
     prediction_splits = get_prediction_splits(output_config)
 
-    dataset_name = str(data_config["dataset_name"])
-    feature_columns = validate_feature_columns(data_config["feature_columns"])
-    treatment_column = str(data_config["treatment_column"])
-    split_column = str(data_config["split_column"])
+    dataset_spec = resolve_dataset_spec(data_config)
+    dataset_name = dataset_spec.name
+    validate_outcome(outcome, dataset_spec)
+    feature_columns = dataset_spec.feature_columns
+    treatment_column = dataset_spec.treatment_column
+    split_column = dataset_spec.split_column
     train_split = str(training_config.get("train_split", "train"))
     validation_split = str(
         training_config.get("validation_split", "validation")
@@ -137,9 +136,7 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
 
     dataframe, target_column = load_training_frame(
         parquet_path=data_path,
-        feature_columns=feature_columns,
-        treatment_column=treatment_column,
-        split_column=split_column,
+        dataset_spec=dataset_spec,
         requested_outcome=outcome,
     )
     dataframe = apply_debug_sample(

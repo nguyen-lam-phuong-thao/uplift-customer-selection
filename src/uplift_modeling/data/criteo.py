@@ -3,8 +3,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from uplift_modeling.data.dataset_spec import CRITEO_SPEC
 
-FEATURE_COLUMNS: tuple[str, ...] = tuple(f"f{index}" for index in range(12))
+
+FEATURE_COLUMNS: tuple[str, ...] = CRITEO_SPEC.feature_columns
 
 BINARY_COLUMNS: tuple[str, ...] = (
     "treatment",

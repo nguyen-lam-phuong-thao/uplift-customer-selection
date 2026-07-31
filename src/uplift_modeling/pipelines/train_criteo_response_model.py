@@ -19,8 +19,12 @@ from uplift_modeling.artifacts.naming import (
 from uplift_modeling.artifacts.predictions import (
     save_prediction_parquet_in_batches,
 )
-from uplift_modeling.data.criteo import FEATURE_COLUMNS
-from uplift_modeling.data.row_id import ROW_ID_COLUMN, validate_row_id_column
+from uplift_modeling.data.dataset_spec import (
+    DatasetSpec,
+    get_dataset_spec,
+    validate_supported_outcome,
+)
+from uplift_modeling.data.row_id import validate_row_id_column
 from uplift_modeling.evaluation.binary_metrics import calculate_binary_metrics
 from uplift_modeling.models.response_model import (
     build_response_model,
@@ -36,7 +40,6 @@ from uplift_modeling.utils.config import (
 
 
 LOGGER = logging.getLogger(__name__)
-VALID_OUTCOMES = ("visit", "conversion")
 ALLOWED_PREDICTION_SPLITS = ("train", "validation", "test")
 DEFAULT_PREDICTION_SPLITS = ("validation", "test")
 
@@ -54,20 +57,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--outcome",
         default="visit",
-        choices=VALID_OUTCOMES,
         help="Outcome to model. Defaults to visit.",
     )
     return parser.parse_args()
 
 
-def validate_outcome(outcome: str) -> None:
+def validate_outcome(outcome: str, dataset_spec: DatasetSpec) -> None:
     """Validate the requested response outcome."""
-    if outcome not in VALID_OUTCOMES:
-        valid_outcomes_text = ", ".join(VALID_OUTCOMES)
-        raise ValueError(
-            f"outcome must be one of: {valid_outcomes_text}. "
-            f"Received: {outcome}"
-        )
+    validate_supported_outcome(dataset_spec, outcome)
 
 
 def get_prediction_splits(output_config: dict[str, Any]) -> tuple[str, ...]:
@@ -125,11 +122,16 @@ def get_processed_data_path(
     processed_paths = data_config.get("processed_paths")
     if not isinstance(processed_paths, dict) or outcome not in processed_paths:
         raise ValueError(
-            "Config data.processed_paths must define paths for visit and "
-            "conversion."
+            "Config data.processed_paths must define a path for the requested "
+            f"outcome: {outcome}."
         )
 
     return resolve_project_path(processed_paths[outcome], project_root)
+
+
+def resolve_dataset_spec(data_config: dict[str, Any]) -> DatasetSpec:
+    """Resolve the stable dataset schema selected by config."""
+    return get_dataset_spec(str(data_config["dataset_name"]))
 
 
 def get_debug_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -182,51 +184,31 @@ def apply_debug_sample(
     ).reset_index(drop=True)
 
 
-def validate_feature_columns(feature_columns: list[str]) -> tuple[str, ...]:
-    """Validate that the response model uses only f0-f11 features."""
-    expected_features = tuple(FEATURE_COLUMNS)
-    configured_features = tuple(feature_columns)
-
-    if configured_features != expected_features:
-        expected_text = ", ".join(expected_features)
-        received_text = ", ".join(configured_features)
-        raise ValueError(
-            "Response model feature_columns must be exactly f0-f11 in order. "
-            f"Expected: {expected_text}. Received: {received_text}"
-        )
-
-    return configured_features
-
-
 def load_training_frame(
     parquet_path: Path,
-    feature_columns: tuple[str, ...],
-    treatment_column: str,
-    split_column: str,
+    dataset_spec: DatasetSpec,
     requested_outcome: str,
 ) -> tuple[pd.DataFrame, str]:
-    """Load only columns required for Criteo response-model training."""
+    """Load only columns required for the selected dataset training frame."""
+    validate_supported_outcome(dataset_spec, requested_outcome)
+
     if not parquet_path.exists():
         raise FileNotFoundError(f"Input parquet does not exist: {parquet_path}")
 
     available_columns = set(pq.read_schema(parquet_path).names)
 
-    if requested_outcome in available_columns:
-        target_column = requested_outcome
-    elif "outcome" in available_columns:
-        target_column = "outcome"
-    else:
+    if requested_outcome not in available_columns:
         raise ValueError(
             "Input parquet is missing the requested outcome column "
-            f"'{requested_outcome}' and fallback column 'outcome'."
+            f"'{requested_outcome}'."
         )
 
     required_columns = (
-        ROW_ID_COLUMN,
-        *feature_columns,
-        treatment_column,
-        split_column,
-        target_column,
+        dataset_spec.row_id_column,
+        *dataset_spec.feature_columns,
+        dataset_spec.treatment_column,
+        dataset_spec.split_column,
+        requested_outcome,
     )
     missing_columns = sorted(set(required_columns).difference(available_columns))
 
@@ -236,8 +218,12 @@ def load_training_frame(
 
     LOGGER.info("Loading training data from %s", parquet_path)
     dataframe = pd.read_parquet(parquet_path, columns=list(required_columns))
-    validate_row_id_column(dataframe, context="Training dataframe")
-    return dataframe, target_column
+    validate_row_id_column(
+        dataframe,
+        row_id_column=dataset_spec.row_id_column,
+        context="Training dataframe",
+    )
+    return dataframe, requested_outcome
 
 
 def get_split_frame(
@@ -256,7 +242,6 @@ def get_split_frame(
 
 def train_response_pipeline(config_path: Path, outcome: str) -> None:
     """Run the configured Criteo response-model training pipeline."""
-    validate_outcome(outcome)
     project_root = get_project_root(Path(__file__))
     config = load_yaml_config(config_path)
 
@@ -268,10 +253,12 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
     debug_config = get_debug_config(config)
     prediction_splits = get_prediction_splits(output_config)
 
-    dataset_name = str(data_config["dataset_name"])
-    feature_columns = validate_feature_columns(data_config["feature_columns"])
-    treatment_column = str(data_config["treatment_column"])
-    split_column = str(data_config["split_column"])
+    dataset_spec = resolve_dataset_spec(data_config)
+    dataset_name = dataset_spec.name
+    validate_outcome(outcome, dataset_spec)
+    feature_columns = dataset_spec.feature_columns
+    treatment_column = dataset_spec.treatment_column
+    split_column = dataset_spec.split_column
     train_split = str(training_config.get("train_split", "train"))
     validation_split = str(
         training_config.get("validation_split", "validation")
@@ -326,9 +313,7 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
 
     dataframe, target_column = load_training_frame(
         parquet_path=data_path,
-        feature_columns=feature_columns,
-        treatment_column=treatment_column,
-        split_column=split_column,
+        dataset_spec=dataset_spec,
         requested_outcome=outcome,
     )
 
