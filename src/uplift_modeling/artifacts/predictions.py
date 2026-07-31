@@ -8,6 +8,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from uplift_modeling.data.row_id import ROW_ID_COLUMN, validate_row_id_column
+
 
 def build_prediction_frame(
     dataframe: pd.DataFrame,
@@ -16,8 +18,15 @@ def build_prediction_frame(
     split_column: str,
     outcome_column: str,
     model_name: str,
+    row_id_column: str = ROW_ID_COLUMN,
 ) -> pd.DataFrame:
     """Build a prediction dataframe that follows the shared contract."""
+    validate_row_id_column(
+        dataframe,
+        row_id_column=row_id_column,
+        context="Prediction source dataframe",
+    )
+
     required_columns = {
         treatment_column,
         split_column,
@@ -40,6 +49,7 @@ def build_prediction_frame(
 
     return pd.DataFrame(
         {
+            ROW_ID_COLUMN: dataframe[row_id_column].to_numpy(),
             "treatment": dataframe[treatment_column].to_numpy(),
             "outcome": dataframe[outcome_column].to_numpy(),
             "split": dataframe[split_column].to_numpy(),
@@ -59,6 +69,7 @@ def save_prediction_parquet_in_batches(
     model_name: str,
     batch_size: int,
     score_batch: Callable[[pd.DataFrame], np.ndarray],
+    row_id_column: str = ROW_ID_COLUMN,
 ) -> Path:
     """Score dataframes by batch and save predictions as parquet."""
     if batch_size <= 0:
@@ -74,6 +85,7 @@ def save_prediction_parquet_in_batches(
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     writer: pq.ParquetWriter | None = None
+    seen_row_ids: set[object] = set()
 
     try:
         for dataframe in dataframes:
@@ -99,7 +111,21 @@ def save_prediction_parquet_in_batches(
                     split_column=split_column,
                     outcome_column=outcome_column,
                     model_name=model_name,
+                    row_id_column=row_id_column,
                 )
+                batch_row_ids = set(prediction_batch[ROW_ID_COLUMN].tolist())
+                overlapping_ids = sorted(seen_row_ids.intersection(batch_row_ids))
+                if overlapping_ids:
+                    overlap_text = ", ".join(
+                        repr(value) for value in overlapping_ids[:5]
+                    )
+                    if len(overlapping_ids) > 5:
+                        overlap_text += ", ..."
+                    raise ValueError(
+                        "Prediction batches must contain disjoint row_id "
+                        f"values. Overlap: {overlap_text}."
+                    )
+                seen_row_ids.update(batch_row_ids)
                 table = pa.Table.from_pandas(
                     prediction_batch,
                     preserve_index=False,

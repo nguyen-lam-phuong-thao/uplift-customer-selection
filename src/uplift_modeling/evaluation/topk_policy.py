@@ -9,9 +9,12 @@ import numpy as np
 import pandas as pd
 
 from uplift_modeling.artifacts.json import save_json_artifact
+from uplift_modeling.data.row_id import (
+    ROW_ID_COLUMN,
+    align_frames_by_row_id,
+)
 from uplift_modeling.evaluation.uplift_metrics import (
     PREDICTION_COLUMNS,
-    ROW_ID_COLUMN,
     calculate_policy_value,
     rank_predictions,
     validate_prediction_frame,
@@ -21,7 +24,8 @@ from uplift_modeling.evaluation.uplift_metrics import (
 LOGGER = logging.getLogger(__name__)
 TOPK_ARTIFACT_MODEL_NAME = "topk_policy_evaluation"
 TOPK_BUDGET_FRACTIONS: tuple[float, ...] = (0.01, 0.05, 0.10, 0.20, 0.30)
-DEFAULT_EVALUATION_SPLITS = ("validation", "test")
+SELECTION_SPLIT = "validation"
+DEFAULT_EVALUATION_SPLITS = (SELECTION_SPLIT,)
 EXPECTED_POLICY_ARTIFACTS = {
     "pooled_response_lgbm": ("pooled_response_lgbm", "response_lgbm"),
     "treated_response_lgbm": ("treated_response_lgbm",),
@@ -30,71 +34,48 @@ EXPECTED_POLICY_ARTIFACTS = {
 }
 
 
-def parse_prediction_artifact_name(
-    prediction_path: Path,
-    db_name: str,
-    outcome: str,
-) -> tuple[str, int] | None:
-    """Return model name and run number from a prediction artifact name."""
-    prefix = f"{db_name}_{outcome}_"
-    suffix = "_predictions.parquet"
-    pattern = re.compile(
-        rf"^{re.escape(prefix)}(.+)_run(\d+){re.escape(suffix)}$"
-    )
-    match = pattern.match(prediction_path.name)
+def validate_standard_evaluation_splits(
+    evaluation_splits: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Validate that standard evaluation uses validation rows only."""
+    requested_splits = tuple(str(split) for split in evaluation_splits)
+    invalid_splits = sorted(set(requested_splits).difference({SELECTION_SPLIT}))
+    if invalid_splits:
+        invalid_text = ", ".join(invalid_splits)
+        raise ValueError(
+            "Standard evaluation may use the validation split only. "
+            "The test split is reserved for locked-test evaluation. "
+            f"Received invalid split(s): {invalid_text}."
+        )
 
-    if match is None:
-        return None
+    if not requested_splits:
+        raise ValueError("At least one standard evaluation split is required.")
 
-    return match.group(1), int(match.group(2))
+    return requested_splits
 
 
-def find_latest_expected_policy_paths(
-    prediction_dir: Path,
-    db_name: str,
+def resolve_expected_policy_paths(
+    manifest_prediction_paths: dict[str, Path],
     outcome: str,
 ) -> tuple[dict[str, Path], list[str]]:
-    """Find latest available prediction artifacts for expected policies."""
-    if not prediction_dir.exists():
-        raise FileNotFoundError(
-            f"Prediction directory does not exist: {prediction_dir}"
-        )
-
+    """Resolve expected Top-K policies from manifest-listed artifacts."""
     warnings: list[str] = []
-    latest_by_artifact_model: dict[str, tuple[int, Path]] = {}
-
-    for prediction_path in prediction_dir.iterdir():
-        if not prediction_path.is_file():
-            continue
-
-        parsed_name = parse_prediction_artifact_name(
-            prediction_path=prediction_path,
-            db_name=db_name,
-            outcome=outcome,
-        )
-        if parsed_name is None:
-            continue
-
-        artifact_model_name, run_number = parsed_name
-        latest_run = latest_by_artifact_model.get(artifact_model_name)
-        if latest_run is None or run_number > latest_run[0]:
-            latest_by_artifact_model[artifact_model_name] = (
-                run_number,
-                prediction_path,
-            )
-
     policy_paths: dict[str, Path] = {}
     for policy_name, artifact_candidates in EXPECTED_POLICY_ARTIFACTS.items():
-        matched_candidate = None
-        for artifact_model_name in artifact_candidates:
-            if artifact_model_name in latest_by_artifact_model:
-                matched_candidate = artifact_model_name
-                policy_paths[policy_name] = latest_by_artifact_model[
-                    artifact_model_name
-                ][1]
-                break
+        matched_candidates = [
+            artifact_model_name
+            for artifact_model_name in artifact_candidates
+            if artifact_model_name in manifest_prediction_paths
+        ]
 
-        if matched_candidate is None:
+        if len(matched_candidates) > 1:
+            matched_text = ", ".join(matched_candidates)
+            raise ValueError(
+                "Experiment manifest contains ambiguous prediction artifacts "
+                f"for policy '{policy_name}': {matched_text}."
+            )
+
+        if not matched_candidates:
             warning = (
                 f"Missing optional prediction artifact for policy "
                 f"'{policy_name}'. Checked artifact model names: "
@@ -102,7 +83,11 @@ def find_latest_expected_policy_paths(
             )
             LOGGER.warning(warning)
             warnings.append(warning)
-        elif matched_candidate != policy_name:
+            continue
+
+        matched_candidate = matched_candidates[0]
+        policy_paths[policy_name] = manifest_prediction_paths[matched_candidate]
+        if matched_candidate != policy_name:
             warning = (
                 f"Using artifact model '{matched_candidate}' as policy "
                 f"'{policy_name}'."
@@ -111,9 +96,9 @@ def find_latest_expected_policy_paths(
             warnings.append(warning)
 
     if not policy_paths:
-        raise FileNotFoundError(
-            f"No expected prediction artifacts found for outcome '{outcome}' "
-            f"in {prediction_dir}."
+        raise ValueError(
+            "Experiment manifest does not contain any expected prediction "
+            f"artifacts for outcome '{outcome}'."
         )
 
     return policy_paths, warnings
@@ -124,6 +109,7 @@ def filter_evaluation_splits(
     evaluation_splits: tuple[str, ...] = DEFAULT_EVALUATION_SPLITS,
 ) -> pd.DataFrame:
     """Keep only configured split rows for policy evaluation."""
+    evaluation_splits = validate_standard_evaluation_splits(evaluation_splits)
     evaluation_predictions = predictions.loc[
         predictions["split"].isin(evaluation_splits)
     ].copy()
@@ -160,10 +146,12 @@ def load_policy_prediction_frames(
         frame = frame.copy()
         frame["artifact_name"] = prediction_path.name
         frame["policy_name"] = policy_name
-        policy_frames[policy_name] = filter_evaluation_splits(
+        evaluation_frame = filter_evaluation_splits(
             frame,
             evaluation_splits=evaluation_splits,
         )
+        validate_prediction_frame(evaluation_frame)
+        policy_frames[policy_name] = evaluation_frame
 
     return policy_frames
 
@@ -173,15 +161,14 @@ def build_random_policy_frame(
     random_seed: int,
 ) -> pd.DataFrame:
     """Build deterministic random targeting from prediction labels."""
+    validate_prediction_frame(base_predictions)
     rng = np.random.default_rng(random_seed)
-    label_columns = ["treatment", "outcome", "split"]
-    if ROW_ID_COLUMN in base_predictions.columns:
-        label_columns.append(ROW_ID_COLUMN)
+    label_columns = [ROW_ID_COLUMN, "treatment", "outcome", "split"]
 
-    random_frame = base_predictions.loc[
-        :,
-        label_columns,
-    ].copy()
+    random_frame = base_predictions.sort_values(
+        ROW_ID_COLUMN,
+        kind="mergesort",
+    ).loc[:, label_columns].copy()
     random_frame["score"] = rng.random(len(random_frame))
     random_frame["model_name"] = "random_targeting"
     random_frame["artifact_name"] = "generated_from_prediction_labels"
@@ -192,9 +179,14 @@ def build_random_policy_frame(
 def calculate_topk_policy_metrics(
     predictions: pd.DataFrame,
     budget_fraction: float,
+    *,
+    require_unique_row_id: bool = True,
 ) -> dict[str, float | int | None]:
     """Calculate Top-K targeting metrics for one policy and split."""
-    validate_prediction_frame(predictions)
+    validate_prediction_frame(
+        predictions,
+        require_unique_row_id=require_unique_row_id,
+    )
 
     if budget_fraction <= 0 or budget_fraction > 1:
         raise ValueError(
@@ -202,11 +194,15 @@ def calculate_topk_policy_metrics(
             f"Received: {budget_fraction}"
         )
 
-    ranked = rank_predictions(predictions)
+    ranked = rank_predictions(
+        predictions,
+        require_unique_row_id=require_unique_row_id,
+    )
     selected_count = max(1, int(np.ceil(len(ranked) * budget_fraction)))
     selected = ranked.iloc[:selected_count]
     treated = selected.loc[selected["treatment"] == 1, "outcome"]
     control = selected.loc[selected["treatment"] == 0, "outcome"]
+
     treated_outcome_rate = None
     control_outcome_rate = None
     uplift_rate = None
@@ -218,7 +214,9 @@ def calculate_topk_policy_metrics(
         control_outcome_rate = float(control.mean())
         uplift_rate = treated_outcome_rate - control_outcome_rate
         incremental_outcome = uplift_rate * selected_count
-        incremental_outcome_per_1k = incremental_outcome / selected_count * 1000
+        incremental_outcome_per_1k = (
+            incremental_outcome / selected_count * 1000
+        )
 
     return {
         "budget_fraction": float(budget_fraction),
@@ -234,6 +232,7 @@ def calculate_topk_policy_metrics(
         "policy_value": calculate_policy_value(
             predictions,
             top_fraction=budget_fraction,
+            require_unique_row_id=require_unique_row_id,
         ),
     }
 
@@ -265,21 +264,24 @@ def calculate_topk_policy_rows(
 
 
 def prepare_topk_policy_frames(
-    prediction_dir: Path,
-    dataset_name: str,
+    manifest_prediction_paths: dict[str, Path],
     outcome: str,
     random_seed: int,
     evaluation_splits: tuple[str, ...] = DEFAULT_EVALUATION_SPLITS,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, Path], list[str]]:
     """Load available policy frames and add deterministic random targeting."""
-    policy_paths, warnings = find_latest_expected_policy_paths(
-        prediction_dir=prediction_dir,
-        db_name=dataset_name,
+    policy_paths, warnings = resolve_expected_policy_paths(
+        manifest_prediction_paths=manifest_prediction_paths,
         outcome=outcome,
     )
     policy_frames = load_policy_prediction_frames(
         policy_paths,
         evaluation_splits=evaluation_splits,
+    )
+    policy_frames = align_frames_by_row_id(
+        policy_frames,
+        label_columns=("treatment", "outcome", "split"),
+        context="Top-K policy prediction frames",
     )
     first_policy_name = sorted(policy_frames)[0]
     random_policy_frame = build_random_policy_frame(
@@ -361,7 +363,7 @@ def save_topk_policy_evaluation_artifacts(
 
 
 def save_topk_policy_evaluation(
-    prediction_dir: Path,
+    manifest_prediction_paths: dict[str, Path],
     metric_dir: Path,
     dataset_name: str,
     outcome: str,
@@ -370,8 +372,7 @@ def save_topk_policy_evaluation(
 ) -> tuple[Path, dict[str, Any]]:
     """Load predictions and save Top-K targeting policy JSON."""
     policy_frames, policy_paths, warnings = prepare_topk_policy_frames(
-        prediction_dir=prediction_dir,
-        dataset_name=dataset_name,
+        manifest_prediction_paths=manifest_prediction_paths,
         outcome=outcome,
         random_seed=random_seed,
         evaluation_splits=evaluation_splits,

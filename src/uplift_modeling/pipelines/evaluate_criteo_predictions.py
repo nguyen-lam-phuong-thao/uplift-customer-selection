@@ -9,12 +9,16 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from uplift_modeling.artifacts.json import save_json_artifact
+from uplift_modeling.artifacts.manifest import (
+    load_experiment_manifest,
+    resolve_prediction_paths,
+)
 from uplift_modeling.artifacts.naming import (
     build_artifact_filename,
     build_model_comparison_name,
-    find_latest_prediction_paths,
     find_next_run_number,
 )
+from uplift_modeling.data.row_id import align_frames_by_row_id
 from uplift_modeling.evaluation.bootstrap import (
     BOOTSTRAP_METRICS,
     DEFAULT_BASELINE_POLICY,
@@ -28,9 +32,12 @@ from uplift_modeling.evaluation.selection_gate import (
     save_model_selection_gate,
 )
 from uplift_modeling.evaluation.topk_policy import (
+    DEFAULT_EVALUATION_SPLITS,
+    SELECTION_SPLIT,
     TOPK_BUDGET_FRACTIONS,
     prepare_topk_policy_frames,
     save_topk_policy_evaluation_artifacts,
+    validate_standard_evaluation_splits,
 )
 from uplift_modeling.evaluation.uplift_metrics import (
     PREDICTION_COLUMNS,
@@ -48,7 +55,7 @@ from uplift_modeling.utils.config import (
 
 LOGGER = logging.getLogger(__name__)
 VALID_OUTCOMES = ("visit", "conversion")
-EVALUATION_SPLITS = ("validation", "test")
+EVALUATION_SPLITS = DEFAULT_EVALUATION_SPLITS
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,6 +67,11 @@ def parse_args() -> argparse.Namespace:
         "--config",
         required=True,
         help="Path to the response-model YAML config.",
+    )
+    parser.add_argument(
+        "--manifest",
+        required=True,
+        help="Path to the experiment manifest JSON artifact.",
     )
     parser.add_argument(
         "--outcome",
@@ -95,7 +107,7 @@ def parse_args() -> argparse.Namespace:
         "--bootstrap-splits",
         nargs="+",
         default=None,
-        help="Evaluation split names to bootstrap. Defaults to all splits.",
+        help="Validation split name to bootstrap. Test is locked-test only.",
     )
     parser.add_argument(
         "--bootstrap-budget-fractions",
@@ -115,19 +127,6 @@ def parse_args() -> argparse.Namespace:
         help="Only save Top-K policy and bootstrap evaluation artifacts.",
     )
     return parser.parse_args()
-
-
-def get_prediction_paths(
-    prediction_dir: Path,
-    db_name: str,
-    outcome: str,
-) -> list[Path]:
-    """Return the latest matching prediction artifacts for one outcome."""
-    return find_latest_prediction_paths(
-        prediction_dir=prediction_dir,
-        db_name=db_name,
-        outcome=outcome,
-    )
 
 
 def load_prediction_artifacts(prediction_paths: list[Path]) -> pd.DataFrame:
@@ -150,6 +149,7 @@ def load_prediction_artifacts(prediction_paths: list[Path]) -> pd.DataFrame:
 
         frame = frame.copy()
         frame["artifact_name"] = prediction_path.name
+        validate_prediction_frame(frame)
         frames.append(frame)
 
     predictions = pd.concat(frames, ignore_index=True)
@@ -157,7 +157,7 @@ def load_prediction_artifacts(prediction_paths: list[Path]) -> pd.DataFrame:
 
 
 def filter_evaluation_splits(predictions: pd.DataFrame) -> pd.DataFrame:
-    """Keep only validation and test prediction rows for evaluation."""
+    """Keep only validation prediction rows for standard evaluation."""
     evaluation_predictions = predictions.loc[
         predictions["split"].isin(EVALUATION_SPLITS)
     ].copy()
@@ -171,11 +171,42 @@ def filter_evaluation_splits(predictions: pd.DataFrame) -> pd.DataFrame:
     return evaluation_predictions
 
 
+def get_bootstrap_splits(
+    bootstrap_splits: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    """Return validated bootstrap splits for model-selection evaluation."""
+    if bootstrap_splits is None:
+        return EVALUATION_SPLITS
+
+    return validate_standard_evaluation_splits(bootstrap_splits)
+
+
+def align_prediction_artifacts(predictions: pd.DataFrame) -> pd.DataFrame:
+    """Align loaded model artifacts by row_id before comparison metrics."""
+    artifact_frames = {
+        str(artifact_name): group.copy()
+        for artifact_name, group in predictions.groupby("artifact_name", sort=True)
+    }
+    aligned_frames = align_frames_by_row_id(
+        artifact_frames,
+        label_columns=("treatment", "outcome", "split"),
+        context="Evaluation prediction artifacts",
+    )
+    return pd.concat(aligned_frames.values(), ignore_index=True)
+
+
+def validate_standard_prediction_splits(predictions: pd.DataFrame) -> None:
+    """Validate that standard evaluation frames contain validation rows only."""
+    observed_splits = tuple(str(split) for split in predictions["split"].unique())
+    validate_standard_evaluation_splits(observed_splits)
+
+
 def calculate_split_metrics(
     predictions: pd.DataFrame,
     top_fraction: float,
 ) -> list[dict[str, Any]]:
     """Calculate uplift metrics for each model and evaluation split."""
+    validate_standard_prediction_splits(predictions)
     rows: list[dict[str, Any]] = []
 
     for (model_name, split), group in predictions.groupby(
@@ -219,7 +250,9 @@ def get_selection_gate_settings(
 
     return SelectionGateSettings(
         outcome=outcome,
-        split=str(selection_config.get("primary_split", EVALUATION_SPLITS[0])),
+        split=validate_standard_evaluation_splits(
+            (str(selection_config.get("primary_split", SELECTION_SPLIT)),)
+        )[0],
         budget_fraction=float(
             selection_config.get(
                 "primary_budget_fraction",
@@ -238,7 +271,8 @@ def save_qini_curve(
     output_path: Path,
     curve_num_points: int,
 ) -> Path:
-    """Save a Qini curve figure for validation and test predictions."""
+    """Save a Qini curve figure for validation predictions."""
+    validate_standard_prediction_splits(predictions)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure, axis = plt.subplots(figsize=(8, 5))
 
@@ -283,7 +317,8 @@ def save_uplift_curve(
     output_path: Path,
     curve_num_points: int,
 ) -> Path:
-    """Save an uplift curve figure for validation and test predictions."""
+    """Save an uplift curve figure for validation predictions."""
+    validate_standard_prediction_splits(predictions)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure, axis = plt.subplots(figsize=(8, 5))
 
@@ -311,6 +346,7 @@ def save_uplift_curve(
 
 def evaluate_predictions(
     config_path: Path,
+    manifest_path: Path,
     outcome: str,
     top_fraction: float,
     curve_num_points: int,
@@ -327,11 +363,16 @@ def evaluate_predictions(
     data_config = get_config_section(config, "data")
     output_config = get_config_section(config, "outputs")
     dataset_name = str(data_config["dataset_name"])
-
-    prediction_dir = resolve_project_path(
-        output_config["prediction_dir"],
-        project_root,
+    bootstrap_splits = get_bootstrap_splits(bootstrap_splits)
+    manifest = load_experiment_manifest(manifest_path)
+    manifest_prediction_paths = resolve_prediction_paths(
+        manifest=manifest,
+        manifest_path=manifest_path,
+        dataset_name=dataset_name,
+        outcome=outcome,
+        project_root=project_root,
     )
+
     metric_dir = resolve_project_path(
         output_config["metric_dir"],
         project_root,
@@ -342,10 +383,10 @@ def evaluate_predictions(
     )
 
     policy_frames, policy_paths, topk_warnings = prepare_topk_policy_frames(
-        prediction_dir=prediction_dir,
-        dataset_name=dataset_name,
+        manifest_prediction_paths=manifest_prediction_paths,
         outcome=outcome,
         random_seed=random_seed,
+        evaluation_splits=EVALUATION_SPLITS,
     )
     save_topk_policy_evaluation_artifacts(
         policy_frames=policy_frames,
@@ -393,11 +434,10 @@ def evaluate_predictions(
     if topk_only:
         return
 
-    prediction_paths = get_prediction_paths(
-        prediction_dir=prediction_dir,
-        db_name=dataset_name,
-        outcome=outcome,
-    )
+    prediction_paths = [
+        prediction_path
+        for _, prediction_path in sorted(manifest_prediction_paths.items())
+    ]
     model_comparison_name = build_model_comparison_name(prediction_paths)
     run_number = find_next_run_number(
         artifact_dirs=(metric_dir, figure_dir),
@@ -442,8 +482,8 @@ def evaluate_predictions(
         project_root,
     )
 
-    predictions = filter_evaluation_splits(
-        load_prediction_artifacts(prediction_paths)
+    predictions = align_prediction_artifacts(
+        filter_evaluation_splits(load_prediction_artifacts(prediction_paths))
     )
     split_metrics = calculate_split_metrics(
         predictions,
@@ -485,8 +525,10 @@ def main() -> None:
     args = parse_args()
     project_root = get_project_root(Path(__file__))
     config_path = resolve_project_path(args.config, project_root)
+    manifest_path = resolve_project_path(args.manifest, project_root)
     evaluate_predictions(
         config_path=config_path,
+        manifest_path=manifest_path,
         outcome=args.outcome,
         top_fraction=args.top_fraction,
         curve_num_points=args.curve_num_points,

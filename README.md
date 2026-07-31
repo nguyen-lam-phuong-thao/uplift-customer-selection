@@ -109,6 +109,11 @@ data/processed/criteo/criteo_decision_conversion.parquet
 ```
 
 These datasets keep `f0`-`f11`, `treatment`, the selected outcome, and a deterministic `split` column. They exclude `exposure` because it is a post-treatment variable and would create leakage risk.
+They also include a canonical `row_id` column created at the preparation
+boundary. `row_id` is deterministic for the prepared dataset, non-null, unique
+within that dataset, and must be preserved unchanged through training,
+prediction artifacts, evaluation, bootstrap, selection, and locked-test
+reporting.
 
 Current Phase 1 split policy:
 

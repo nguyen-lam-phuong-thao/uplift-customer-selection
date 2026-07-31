@@ -64,54 +64,6 @@ def find_next_run_number(
     return max(run_numbers) + 1
 
 
-def find_latest_prediction_paths(
-    prediction_dir: Path,
-    db_name: str,
-    outcome: str,
-) -> list[Path]:
-    """Return the latest prediction file for each model and outcome."""
-    prefix = f"{db_name}_{outcome}_"
-    suffix = "_predictions.parquet"
-    pattern = re.compile(
-        rf"^{re.escape(prefix)}(.+)_run(\d+){re.escape(suffix)}$"
-    )
-    latest_by_model: dict[str, tuple[int, Path]] = {}
-
-    if not prediction_dir.exists():
-        raise FileNotFoundError(
-            f"Prediction directory does not exist: {prediction_dir}"
-        )
-
-    for prediction_path in prediction_dir.iterdir():
-        if not prediction_path.is_file():
-            continue
-
-        match = pattern.match(prediction_path.name)
-        if not match:
-            continue
-
-        model_name = match.group(1)
-        run_number = int(match.group(2))
-        latest_run = latest_by_model.get(model_name)
-
-        if latest_run is None or run_number > latest_run[0]:
-            latest_by_model[model_name] = (run_number, prediction_path)
-
-    if not latest_by_model:
-        raise FileNotFoundError(
-            "No run-numbered prediction parquet files found for outcome "
-            f"'{outcome}' in {prediction_dir}"
-        )
-
-    return [
-        prediction_path
-        for _, prediction_path in sorted(
-            latest_by_model.values(),
-            key=lambda item: item[1].name,
-        )
-    ]
-
-
 def build_model_comparison_name(prediction_paths: list[Path]) -> str:
     """Build the model-name segment for an evaluation artifact."""
     model_names = []

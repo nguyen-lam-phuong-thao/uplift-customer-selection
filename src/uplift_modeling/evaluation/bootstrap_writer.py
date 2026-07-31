@@ -1,12 +1,14 @@
 """Artifact writing for Top-K bootstrap policy evaluation."""
 
 from __future__ import annotations
-import pandas as pd
+
 import logging
 import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
+
+import pandas as pd
 
 from uplift_modeling.artifacts.json import save_json_artifact
 from uplift_modeling.evaluation.bootstrap_config import (
@@ -18,7 +20,9 @@ from uplift_modeling.evaluation.bootstrap_config import (
 from uplift_modeling.evaluation.bootstrap_summary import (
     calculate_bootstrap_policy_rows,
 )
-from uplift_modeling.evaluation.topk_policy import TOPK_BUDGET_FRACTIONS
+from uplift_modeling.evaluation.topk_policy import (
+    TOPK_BUDGET_FRACTIONS,
+)
 
 
 LOGGER = logging.getLogger(__name__)

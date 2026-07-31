@@ -10,6 +10,12 @@ from uplift_modeling.data.preparation import (
     build_decision_frame,
     save_decision_dataset,
 )
+from uplift_modeling.data.row_id import (
+    ROW_ID_COLUMN,
+    add_row_id,
+    align_frames_by_row_id,
+    validate_row_id_column,
+)
 from uplift_modeling.data.validation import validate_criteo
 
 __all__ = [
@@ -20,6 +26,10 @@ __all__ = [
     "CRITEO_COLUMNS",
     "FEATURE_COLUMNS",
     "load_criteo",
+    "ROW_ID_COLUMN",
+    "add_row_id",
+    "align_frames_by_row_id",
     "save_decision_dataset",
     "validate_criteo",
+    "validate_row_id_column",
 ]

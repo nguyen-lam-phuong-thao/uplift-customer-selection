@@ -8,6 +8,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from uplift_modeling.data.row_id import (
+    align_frames_by_row_id,
+)
 from uplift_modeling.evaluation.bootstrap_config import (
     BOOTSTRAP_METRICS,
     DEFAULT_BASELINE_POLICY,
@@ -19,7 +22,6 @@ from uplift_modeling.evaluation.topk_policy import (
     TOPK_BUDGET_FRACTIONS,
     calculate_topk_policy_metrics,
 )
-from uplift_modeling.evaluation.uplift_metrics import ROW_ID_COLUMN
 
 
 _COMPATIBILITY_EXPORTS = {
@@ -87,7 +89,7 @@ def _get_split_frames(
 def _validate_paired_split_frames(
     split: str,
     split_frames: dict[str, pd.DataFrame],
-) -> int:
+) -> tuple[dict[str, pd.DataFrame], int]:
     row_counts = {
         policy_name: len(split_frame)
         for policy_name, split_frame in split_frames.items()
@@ -100,46 +102,12 @@ def _validate_paired_split_frames(
             f"Received: {row_counts}"
         )
 
-    reference_policy = sorted(split_frames)[0]
-    has_row_id = {
-        policy_name: ROW_ID_COLUMN in split_frame.columns
-        for policy_name, split_frame in split_frames.items()
-    }
-    if any(has_row_id.values()) and not all(has_row_id.values()):
-        missing_row_id = sorted(
-            policy_name
-            for policy_name, contains_row_id in has_row_id.items()
-            if not contains_row_id
-        )
-        raise ValueError(
-            "Policy prediction frames must be row-aligned for paired "
-            "bootstrap evaluation. Some policy frames contain row_id and "
-            f"others do not for split '{split}'. Policies missing row_id: "
-            f"{missing_row_id}."
-        )
-
-    alignment_columns = ["treatment", "outcome", "split"]
-    if all(has_row_id.values()):
-        alignment_columns.append(ROW_ID_COLUMN)
-
-    reference_labels = split_frames[reference_policy][
-        alignment_columns
-    ].reset_index(drop=True)
-
-    for policy_name, split_frame in split_frames.items():
-        labels = split_frame[alignment_columns].reset_index(
-            drop=True
-        )
-        if not labels.equals(reference_labels):
-            raise ValueError(
-                "Policy prediction frames must be row-aligned for paired "
-                "bootstrap evaluation. Expected matching columns "
-                f"{alignment_columns}. "
-                f"Policy '{policy_name}' is not aligned to "
-                f"'{reference_policy}' for split '{split}'."
-            )
-
-    return unique_row_counts.pop()
+    aligned_frames = align_frames_by_row_id(
+        split_frames,
+        label_columns=("treatment", "outcome", "split"),
+        context=f"Policy prediction frames for paired bootstrap split '{split}'",
+    )
+    return aligned_frames, unique_row_counts.pop()
 
 
 def calculate_bootstrap_policy_metric_samples(
@@ -150,8 +118,8 @@ def calculate_bootstrap_policy_metric_samples(
 ) -> pd.DataFrame:
     """Calculate per-iteration Top-K bootstrap metrics.
 
-    Each bootstrap iteration samples row positions once per split and applies
-    that same sampled index vector to every available policy frame.
+    Each bootstrap iteration samples from a deterministic row_id ordering once
+    per split and applies that same sampled row_id vector to every policy frame.
     """
     fractions = validate_bootstrap_config(
         budget_fractions=budget_fractions,
@@ -175,7 +143,7 @@ def calculate_bootstrap_policy_metric_samples(
         if not split_frames:
             continue
 
-        row_count = _validate_paired_split_frames(
+        aligned_split_frames, row_count = _validate_paired_split_frames(
             split=split,
             split_frames=split_frames,
         )
@@ -186,7 +154,7 @@ def calculate_bootstrap_policy_metric_samples(
                 size=row_count,
             )
 
-            for policy_name, split_frame in split_frames.items():
+            for policy_name, split_frame in aligned_split_frames.items():
                 sampled_frame = split_frame.iloc[sample_positions].reset_index(
                     drop=True
                 )
@@ -194,6 +162,7 @@ def calculate_bootstrap_policy_metric_samples(
                     metrics = calculate_topk_policy_metrics(
                         sampled_frame,
                         budget_fraction=budget_fraction,
+                        require_unique_row_id=False,
                     )
                     rows.append(
                         {

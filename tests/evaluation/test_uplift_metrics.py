@@ -16,6 +16,7 @@ def _prediction_frame() -> pd.DataFrame:
     """Return a small prediction frame with treated and control rows."""
     return pd.DataFrame(
         {
+            "row_id": [1, 2, 3, 4],
             "treatment": [1, 0, 1, 0],
             "outcome": [1, 0, 0, 0],
             "split": ["validation"] * 4,
@@ -40,6 +41,7 @@ def test_build_uplift_curve_supports_num_points() -> None:
     """The uplift curve can be sampled to a configured number of points."""
     frame = pd.DataFrame(
         {
+            "row_id": list(range(20)),
             "treatment": [1, 0] * 10,
             "outcome": [1, 0] * 10,
             "split": ["validation"] * 20,
@@ -58,6 +60,7 @@ def test_build_uplift_curve_defaults_to_at_most_num_points() -> None:
     """Default curve output is sampled instead of one row per customer."""
     frame = pd.DataFrame(
         {
+            "row_id": list(range(150)),
             "treatment": [1, 0] * 75,
             "outcome": [1, 0] * 75,
             "split": ["validation"] * 150,
@@ -91,6 +94,31 @@ def test_validate_prediction_frame_rejects_missing_contract_columns() -> None:
     """Prediction frames must follow the shared artifact contract."""
     with pytest.raises(ValueError, match="model_name"):
         validate_prediction_frame(_prediction_frame().drop(columns="model_name"))
+
+
+def test_validate_prediction_frame_rejects_missing_row_id() -> None:
+    """Prediction evaluation requires explicit row_id values."""
+    with pytest.raises(ValueError, match="row_id"):
+        validate_prediction_frame(_prediction_frame().drop(columns="row_id"))
+
+
+def test_validate_prediction_frame_rejects_duplicate_row_id() -> None:
+    """Prediction evaluation rejects duplicate row_id values."""
+    frame = _prediction_frame()
+    frame.loc[1, "row_id"] = frame.loc[0, "row_id"]
+
+    with pytest.raises(ValueError, match="unique"):
+        validate_prediction_frame(frame)
+
+
+def test_reordered_prediction_rows_keep_same_metrics() -> None:
+    """Evaluation is stable when prediction artifacts arrive reordered."""
+    frame = _prediction_frame()
+    reordered = frame.sort_values("row_id", ascending=False)
+
+    assert calculate_uplift_metrics(reordered, top_fraction=0.5) == (
+        calculate_uplift_metrics(frame, top_fraction=0.5)
+    )
 
 
 def test_validate_prediction_frame_rejects_non_binary_outcome() -> None:

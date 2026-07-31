@@ -22,6 +22,7 @@ def _prediction_frame(
     row_count = len(split_values)
     return pd.DataFrame(
         {
+            "row_id": list(range(row_count)),
             "treatment": ([1, 0] * (row_count // 2 + 1))[:row_count],
             "outcome": ([1, 0, 0, 1, 1, 0] * (row_count // 6 + 1))[
                 :row_count
@@ -49,6 +50,18 @@ def _write_predictions(
         index=False,
     )
     return prediction_path
+
+
+def _manifest_paths(*prediction_paths: Path) -> dict[str, Path]:
+    """Build a policy-to-path mapping from test prediction file names."""
+    paths: dict[str, Path] = {}
+    for prediction_path in prediction_paths:
+        policy = prediction_path.name.removeprefix(
+            "criteo_visit_"
+        ).removesuffix("_run01_predictions.parquet")
+        paths[policy] = prediction_path
+
+    return paths
 
 
 def _write_selection_artifact(tmp_path: Path, champion_policy: str) -> Path:
@@ -82,12 +95,16 @@ def test_locked_test_evaluates_only_champion_and_baseline(tmp_path) -> None:
     metric_dir = tmp_path / "metrics"
     prediction_dir.mkdir()
     selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    _write_predictions(prediction_dir, "treated_response_lgbm")
-    _write_predictions(prediction_dir, "t_learner_lgbm")
-    _write_predictions(prediction_dir, "x_learner_lgbm")
+    baseline_path = _write_predictions(prediction_dir, "treated_response_lgbm")
+    champion_path = _write_predictions(prediction_dir, "t_learner_lgbm")
+    extra_path = _write_predictions(prediction_dir, "x_learner_lgbm")
 
     output_path, payload = save_locked_test_evaluation(
-        prediction_dir=prediction_dir,
+        manifest_prediction_paths=_manifest_paths(
+            baseline_path,
+            champion_path,
+            extra_path,
+        ),
         metric_dir=metric_dir,
         dataset_name="criteo",
         outcome="visit",
@@ -108,14 +125,47 @@ def test_locked_test_evaluates_only_champion_and_baseline(tmp_path) -> None:
     assert {row["split"] for row in payload["locked_test_rows"]} == {"test"}
 
 
+def test_locked_test_aligns_reordered_prediction_rows_by_row_id(tmp_path) -> None:
+    """Locked-test evaluation tolerates reordered champion artifacts."""
+    prediction_dir = tmp_path / "predictions"
+    metric_dir = tmp_path / "metrics"
+    prediction_dir.mkdir()
+    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
+    baseline_path = _write_predictions(prediction_dir, "treated_response_lgbm")
+    champion_path = (
+        prediction_dir / "criteo_visit_t_learner_lgbm_run01_predictions.parquet"
+    )
+    _prediction_frame("t_learner_lgbm").sort_values(
+        "row_id",
+        ascending=False,
+    ).to_parquet(champion_path, index=False)
+
+    _, payload = save_locked_test_evaluation(
+        manifest_prediction_paths=_manifest_paths(
+            baseline_path,
+            champion_path,
+        ),
+        metric_dir=metric_dir,
+        dataset_name="criteo",
+        outcome="visit",
+        selection_artifact_path=selection_path,
+    )
+
+    assert {row["split"] for row in payload["locked_test_rows"]} == {"test"}
+    assert {row["policy"] for row in payload["locked_test_rows"]} == {
+        "t_learner_lgbm",
+        "treated_response_lgbm",
+    }
+
+
 def test_locked_test_fails_if_champion_test_predictions_are_missing(tmp_path) -> None:
     """A champion artifact without test rows raises a clear error."""
     prediction_dir = tmp_path / "predictions"
     metric_dir = tmp_path / "metrics"
     prediction_dir.mkdir()
     selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    _write_predictions(prediction_dir, "treated_response_lgbm")
-    _write_predictions(
+    baseline_path = _write_predictions(prediction_dir, "treated_response_lgbm")
+    champion_path = _write_predictions(
         prediction_dir,
         "t_learner_lgbm",
         splits=["validation"] * 12,
@@ -123,7 +173,10 @@ def test_locked_test_fails_if_champion_test_predictions_are_missing(tmp_path) ->
 
     with pytest.raises(ValueError, match="t_learner_lgbm test predictions"):
         save_locked_test_evaluation(
-            prediction_dir=prediction_dir,
+            manifest_prediction_paths=_manifest_paths(
+                baseline_path,
+                champion_path,
+            ),
             metric_dir=metric_dir,
             dataset_name="criteo",
             outcome="visit",
@@ -137,8 +190,8 @@ def test_locked_test_fails_if_baseline_test_predictions_are_missing(tmp_path) ->
     metric_dir = tmp_path / "metrics"
     prediction_dir.mkdir()
     selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    _write_predictions(prediction_dir, "t_learner_lgbm")
-    _write_predictions(
+    champion_path = _write_predictions(prediction_dir, "t_learner_lgbm")
+    baseline_path = _write_predictions(
         prediction_dir,
         "treated_response_lgbm",
         splits=["validation"] * 12,
@@ -149,7 +202,10 @@ def test_locked_test_fails_if_baseline_test_predictions_are_missing(tmp_path) ->
         match="treated_response_lgbm test predictions",
     ):
         save_locked_test_evaluation(
-            prediction_dir=prediction_dir,
+            manifest_prediction_paths=_manifest_paths(
+                champion_path,
+                baseline_path,
+            ),
             metric_dir=metric_dir,
             dataset_name="criteo",
             outcome="visit",
@@ -165,11 +221,11 @@ def test_locked_test_fails_if_champion_prediction_artifact_is_missing(
     metric_dir = tmp_path / "metrics"
     prediction_dir.mkdir()
     selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    _write_predictions(prediction_dir, "treated_response_lgbm")
+    baseline_path = _write_predictions(prediction_dir, "treated_response_lgbm")
 
     with pytest.raises(ValueError, match="Champion prediction artifact"):
         save_locked_test_evaluation(
-            prediction_dir=prediction_dir,
+            manifest_prediction_paths=_manifest_paths(baseline_path),
             metric_dir=metric_dir,
             dataset_name="criteo",
             outcome="visit",
@@ -185,13 +241,44 @@ def test_locked_test_fails_if_baseline_prediction_artifact_is_missing(
     metric_dir = tmp_path / "metrics"
     prediction_dir.mkdir()
     selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    _write_predictions(prediction_dir, "t_learner_lgbm")
+    champion_path = _write_predictions(prediction_dir, "t_learner_lgbm")
 
     with pytest.raises(ValueError, match="Baseline prediction artifact"):
         save_locked_test_evaluation(
-            prediction_dir=prediction_dir,
+            manifest_prediction_paths=_manifest_paths(champion_path),
             metric_dir=metric_dir,
             dataset_name="criteo",
             outcome="visit",
             selection_artifact_path=selection_path,
         )
+
+
+def test_locked_test_ignores_newer_unlisted_prediction_artifact(tmp_path) -> None:
+    """A newer champion file outside the manifest does not affect locked test."""
+    prediction_dir = tmp_path / "predictions"
+    metric_dir = tmp_path / "metrics"
+    prediction_dir.mkdir()
+    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
+    baseline_path = _write_predictions(prediction_dir, "treated_response_lgbm")
+    champion_path = _write_predictions(prediction_dir, "t_learner_lgbm")
+    newer_champion_path = (
+        prediction_dir / "criteo_visit_t_learner_lgbm_run99_predictions.parquet"
+    )
+    newer_frame = _prediction_frame("t_learner_lgbm")
+    newer_frame["score"] = 0.0
+    newer_frame.to_parquet(newer_champion_path, index=False)
+
+    _, payload = save_locked_test_evaluation(
+        manifest_prediction_paths=_manifest_paths(
+            baseline_path,
+            champion_path,
+        ),
+        metric_dir=metric_dir,
+        dataset_name="criteo",
+        outcome="visit",
+        selection_artifact_path=selection_path,
+    )
+
+    assert payload["prediction_artifacts"]["t_learner_lgbm"] == (
+        champion_path.name
+    )

@@ -16,7 +16,11 @@ from uplift_modeling.evaluation.bootstrap_config import (
     DEFAULT_BOOTSTRAP_RANDOM_SEED,
     DEFAULT_N_BOOTSTRAP,
 )
-from uplift_modeling.evaluation.topk_policy import TOPK_BUDGET_FRACTIONS
+from uplift_modeling.evaluation.topk_policy import (
+    DEFAULT_EVALUATION_SPLITS,
+    TOPK_BUDGET_FRACTIONS,
+    validate_standard_evaluation_splits,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -199,9 +203,13 @@ def _filter_policy_frames_to_splits(
     policy_frames: dict[str, pd.DataFrame],
     bootstrap_splits: Iterable[str] | None,
 ) -> dict[str, pd.DataFrame]:
-    requested_splits = _normalize_requested_splits(bootstrap_splits)
-    if requested_splits is None:
-        return policy_frames
+    requested_splits = validate_standard_evaluation_splits(
+        (
+            DEFAULT_EVALUATION_SPLITS
+            if bootstrap_splits is None
+            else _normalize_requested_splits(bootstrap_splits)
+        )
+    )
 
     requested_split_set = set(requested_splits)
     available_splits = {

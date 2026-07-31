@@ -32,6 +32,7 @@ def _base_frame(model_name: str, scores: list[float]) -> pd.DataFrame:
     """Return a row-aligned synthetic prediction frame."""
     return pd.DataFrame(
         {
+            "row_id": list(range(20)),
             "treatment": [1, 0] * 10,
             "outcome": [1, 0, 0, 1, 1, 0, 0, 0, 1, 0] * 2,
             "split": ["validation"] * 10 + ["test"] * 10,
@@ -98,10 +99,7 @@ def _policy_frames() -> dict[str, pd.DataFrame]:
 
 def _policy_frames_with_row_id() -> dict[str, pd.DataFrame]:
     """Return aligned policy frames with stable row identifiers."""
-    return {
-        policy_name: frame.assign(row_id=np.arange(len(frame)))
-        for policy_name, frame in _policy_frames().items()
-    }
+    return _policy_frames()
 
 
 def _run_fresh_python_import_check(code: str) -> None:
@@ -194,6 +192,8 @@ def test_bootstrap_output_has_expected_columns_and_valid_ci() -> None:
     }
 
     assert warnings == []
+    assert {row["split"] for row in policy_rows} == {"validation"}
+    assert {row["split"] for row in contrast_rows} == {"validation"}
     assert required_policy_columns.issubset(policy_rows[0])
     assert required_contrast_columns.issubset(contrast_rows[0])
     assert all(
@@ -278,8 +278,44 @@ def test_restricted_bootstrap_artifact_records_evaluated_splits_and_budgets(
     assert {row["budget_fraction"] for row in contrast_rows} == {0.05}
 
 
-def test_omitted_bootstrap_filters_preserve_existing_behavior() -> None:
-    """Omitting split and budget filters keeps the existing bootstrap output."""
+def test_bootstrap_artifact_defaults_to_validation_only(tmp_path) -> None:
+    """Model-comparison bootstrap artifacts do not expose test results."""
+    _, _, payload = save_bootstrap_policy_evaluation(
+        policy_frames=_policy_frames(),
+        metric_dir=tmp_path,
+        dataset_name="criteo",
+        outcome="visit",
+        random_seed=42,
+        n_bootstrap=3,
+        budget_fractions=(1.0,),
+    )
+
+    assert payload["evaluated_splits"] == ["validation"]
+    assert {
+        row["split"] for row in payload["regular_bootstrap_metric_rows"]
+    } == {"validation"}
+    assert {row["split"] for row in payload["paired_contrast_rows"]} == {
+        "validation"
+    }
+
+
+def test_bootstrap_artifact_rejects_test_split_request(tmp_path) -> None:
+    """Standard bootstrap model comparison cannot evaluate test rows."""
+    with pytest.raises(ValueError, match="test split is reserved"):
+        save_bootstrap_policy_evaluation(
+            policy_frames=_policy_frames(),
+            metric_dir=tmp_path,
+            dataset_name="criteo",
+            outcome="visit",
+            random_seed=42,
+            n_bootstrap=3,
+            budget_fractions=(1.0,),
+            bootstrap_splits=("test",),
+        )
+
+
+def test_omitted_bootstrap_filters_default_to_validation() -> None:
+    """Omitting split filters keeps bootstrap output validation-only."""
     frames = _policy_frames()
 
     default_rows = calculate_bootstrap_policy_rows(
@@ -287,15 +323,15 @@ def test_omitted_bootstrap_filters_preserve_existing_behavior() -> None:
         n_bootstrap=3,
         random_seed=42,
     )
-    explicit_unfiltered_rows = calculate_bootstrap_policy_rows(
+    explicit_validation_rows = calculate_bootstrap_policy_rows(
         frames,
         budget_fractions=TOPK_BUDGET_FRACTIONS,
         n_bootstrap=3,
         random_seed=42,
-        bootstrap_splits=None,
+        bootstrap_splits=("validation",),
     )
 
-    assert default_rows == explicit_unfiltered_rows
+    assert default_rows == explicit_validation_rows
 
 
 def test_invalid_bootstrap_budget_fraction_still_raises() -> None:
@@ -367,13 +403,19 @@ def test_bootstrap_succeeds_when_all_row_ids_match() -> None:
 
 
 def test_bootstrap_raises_when_row_ids_are_misaligned() -> None:
-    """Paired bootstrap rejects frames with mismatched row_id order."""
+    """Paired bootstrap rejects frames with mismatched row_id labels."""
     frames = _policy_frames_with_row_id()
-    frames["t_learner_lgbm"] = frames["t_learner_lgbm"].assign(
-        row_id=np.arange(len(frames["t_learner_lgbm"]))[::-1]
-    )
+    misaligned_frame = frames["t_learner_lgbm"].copy()
 
-    with pytest.raises(ValueError, match="row-aligned.*row_id"):
+    for split in ("validation", "test"):
+        split_mask = misaligned_frame["split"].eq(split)
+        misaligned_frame.loc[split_mask, "row_id"] = (
+            misaligned_frame.loc[split_mask, "row_id"].to_numpy()[::-1]
+        )
+
+    frames["t_learner_lgbm"] = misaligned_frame
+
+    with pytest.raises(ValueError, match="labels do not match.*row_id"):
         calculate_bootstrap_policy_metric_samples(
             frames,
             budget_fractions=(1.0,),
@@ -383,13 +425,11 @@ def test_bootstrap_raises_when_row_ids_are_misaligned() -> None:
 
 
 def test_bootstrap_raises_when_only_some_frames_have_row_id() -> None:
-    """Mixed row_id availability is rejected because pairing is ambiguous."""
+    """Missing row_id availability is rejected because pairing is ambiguous."""
     frames = _policy_frames()
-    frames["treated_response_lgbm"] = frames["treated_response_lgbm"].assign(
-        row_id=np.arange(len(frames["treated_response_lgbm"]))
-    )
+    frames["t_learner_lgbm"] = frames["t_learner_lgbm"].drop(columns="row_id")
 
-    with pytest.raises(ValueError, match="Some policy frames contain row_id"):
+    with pytest.raises(ValueError, match="row-ID column 'row_id'"):
         calculate_bootstrap_policy_metric_samples(
             frames,
             budget_fractions=(1.0,),
@@ -398,20 +438,76 @@ def test_bootstrap_raises_when_only_some_frames_have_row_id() -> None:
         )
 
 
-def test_bootstrap_without_row_id_still_validates_labels() -> None:
-    """Without row_id, paired bootstrap still validates treatment/outcome/split."""
+def test_bootstrap_validates_labels_by_row_id() -> None:
+    """Paired bootstrap rejects treatment/outcome mismatches by row_id."""
     frames = _policy_frames()
     frames["t_learner_lgbm"] = frames["t_learner_lgbm"].assign(
         outcome=1 - frames["t_learner_lgbm"]["outcome"]
     )
 
-    with pytest.raises(ValueError, match="row-aligned"):
+    with pytest.raises(ValueError, match="labels do not match"):
         calculate_bootstrap_policy_metric_samples(
             frames,
             budget_fractions=(1.0,),
             n_bootstrap=2,
             random_seed=42,
         )
+
+
+def test_bootstrap_rejects_missing_prediction_ids() -> None:
+    """Paired bootstrap rejects artifacts missing expected row_id values."""
+    frames = _policy_frames()
+    frames["t_learner_lgbm"] = frames["t_learner_lgbm"].assign(
+        row_id=list(range(19)) + [99]
+    )
+
+    with pytest.raises(ValueError, match="missing row_id"):
+        calculate_bootstrap_policy_metric_samples(
+            frames,
+            budget_fractions=(1.0,),
+            n_bootstrap=2,
+            random_seed=42,
+        )
+
+
+def test_bootstrap_rejects_unexpected_extra_prediction_ids() -> None:
+    """Paired bootstrap rejects artifacts with unexpected row_id values."""
+    frames = _policy_frames()
+    frames["treated_response_lgbm"] = frames["treated_response_lgbm"].assign(
+        row_id=list(range(19)) + [99]
+    )
+
+    with pytest.raises(ValueError, match="unexpected row_id"):
+        calculate_bootstrap_policy_metric_samples(
+            frames,
+            budget_fractions=(1.0,),
+            n_bootstrap=2,
+            random_seed=42,
+        )
+
+
+def test_bootstrap_accepts_reordered_policy_artifacts() -> None:
+    """Paired bootstrap aligns reordered policy rows by row_id."""
+    frames = _policy_frames()
+    frames["t_learner_lgbm"] = frames["t_learner_lgbm"].sort_values(
+        "row_id",
+        ascending=False,
+    )
+
+    reordered_samples = calculate_bootstrap_policy_metric_samples(
+        frames,
+        budget_fractions=(1.0,),
+        n_bootstrap=2,
+        random_seed=42,
+    )
+    baseline_samples = calculate_bootstrap_policy_metric_samples(
+        _policy_frames(),
+        budget_fractions=(1.0,),
+        n_bootstrap=2,
+        random_seed=42,
+    )
+
+    pd.testing.assert_frame_equal(reordered_samples, baseline_samples)
 
 
 def test_bootstrap_metrics_use_existing_metric_logic() -> None:
@@ -439,12 +535,13 @@ def test_bootstrap_metrics_use_existing_metric_logic() -> None:
     ].reset_index(drop=True)
 
     assert row["policy_value"] == pytest.approx(
-        calculate_policy_value(expected_frame, top_fraction=1.0)
+        calculate_policy_value(expected_frame, top_fraction=1.0, require_unique_row_id=False)
     )
     assert row["incremental_outcome"] == pytest.approx(
         calculate_selected_incremental_outcome(
             expected_frame,
             top_fraction=1.0,
+            require_unique_row_id=False
         )
     )
 
@@ -464,7 +561,7 @@ def test_policy_value_is_computed_at_each_budget_fraction() -> None:
     assert {
         row["budget_fraction"] for row in policy_value_rows
     } == {0.5, 1.0}
-    assert len(policy_value_rows) == 8
+    assert len(policy_value_rows) == 4
 
 
 def test_paired_contrast_uses_same_bootstrap_sample() -> None:

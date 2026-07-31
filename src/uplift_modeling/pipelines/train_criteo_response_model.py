@@ -20,6 +20,7 @@ from uplift_modeling.artifacts.predictions import (
     save_prediction_parquet_in_batches,
 )
 from uplift_modeling.data.criteo import FEATURE_COLUMNS
+from uplift_modeling.data.row_id import ROW_ID_COLUMN, validate_row_id_column
 from uplift_modeling.evaluation.binary_metrics import calculate_binary_metrics
 from uplift_modeling.models.response_model import (
     build_response_model,
@@ -221,6 +222,7 @@ def load_training_frame(
         )
 
     required_columns = (
+        ROW_ID_COLUMN,
         *feature_columns,
         treatment_column,
         split_column,
@@ -234,6 +236,7 @@ def load_training_frame(
 
     LOGGER.info("Loading training data from %s", parquet_path)
     dataframe = pd.read_parquet(parquet_path, columns=list(required_columns))
+    validate_row_id_column(dataframe, context="Training dataframe")
     return dataframe, target_column
 
 

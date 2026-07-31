@@ -5,6 +5,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from uplift_modeling.artifacts.manifest import (
+    load_experiment_manifest,
+    resolve_prediction_paths,
+)
 from uplift_modeling.evaluation.bootstrap_config import DEFAULT_BASELINE_POLICY
 from uplift_modeling.evaluation.locked_test import save_locked_test_evaluation
 from uplift_modeling.utils.config import (
@@ -35,6 +39,11 @@ def parse_args() -> argparse.Namespace:
         help="Path to the model-selection gate JSON artifact.",
     )
     parser.add_argument(
+        "--manifest",
+        required=True,
+        help="Path to the experiment manifest JSON artifact.",
+    )
+    parser.add_argument(
         "--outcome",
         default="visit",
         choices=VALID_OUTCOMES,
@@ -58,6 +67,7 @@ def get_locked_test_baseline_policy(config: dict[str, Any]) -> str:
 
 def evaluate_locked_test(
     config_path: Path,
+    manifest_path: Path,
     selection_artifact_path: Path,
     outcome: str,
 ) -> Path:
@@ -67,9 +77,13 @@ def evaluate_locked_test(
     data_config = get_config_section(config, "data")
     output_config = get_config_section(config, "outputs")
     dataset_name = str(data_config["dataset_name"])
-    prediction_dir = resolve_project_path(
-        output_config["prediction_dir"],
-        project_root,
+    manifest = load_experiment_manifest(manifest_path)
+    manifest_prediction_paths = resolve_prediction_paths(
+        manifest=manifest,
+        manifest_path=manifest_path,
+        dataset_name=dataset_name,
+        outcome=outcome,
+        project_root=project_root,
     )
     metric_dir = resolve_project_path(
         output_config["metric_dir"],
@@ -77,7 +91,7 @@ def evaluate_locked_test(
     )
 
     output_path, _ = save_locked_test_evaluation(
-        prediction_dir=prediction_dir,
+        manifest_prediction_paths=manifest_prediction_paths,
         metric_dir=metric_dir,
         dataset_name=dataset_name,
         outcome=outcome,
@@ -96,12 +110,14 @@ def main() -> None:
     args = parse_args()
     project_root = get_project_root(Path(__file__))
     config_path = resolve_project_path(args.config, project_root)
+    manifest_path = resolve_project_path(args.manifest, project_root)
     selection_artifact_path = resolve_project_path(
         args.selection_artifact,
         project_root,
     )
     output_path = evaluate_locked_test(
         config_path=config_path,
+        manifest_path=manifest_path,
         selection_artifact_path=selection_artifact_path,
         outcome=args.outcome,
     )

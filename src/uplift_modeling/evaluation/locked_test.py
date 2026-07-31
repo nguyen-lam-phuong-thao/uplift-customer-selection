@@ -12,13 +12,16 @@ from typing import Any
 import pandas as pd
 
 from uplift_modeling.artifacts.json import save_json_artifact
+from uplift_modeling.data.row_id import align_frames_by_row_id
 from uplift_modeling.evaluation.bootstrap_config import DEFAULT_BASELINE_POLICY
 from uplift_modeling.evaluation.topk_policy import (
     TOPK_BUDGET_FRACTIONS,
     calculate_topk_policy_metrics,
-    parse_prediction_artifact_name,
 )
-from uplift_modeling.evaluation.uplift_metrics import PREDICTION_COLUMNS
+from uplift_modeling.evaluation.uplift_metrics import (
+    PREDICTION_COLUMNS,
+    validate_prediction_frame,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -57,62 +60,19 @@ def get_champion_policy(selection_payload: Mapping[str, Any]) -> str:
     return champion_policy
 
 
-def find_latest_policy_prediction_path(
-    prediction_dir: Path,
-    dataset_name: str,
-    outcome: str,
-    policy: str,
-) -> Path | None:
-    """Find the latest prediction artifact for one policy and outcome."""
-    if not prediction_dir.exists():
-        raise FileNotFoundError(
-            f"Prediction directory does not exist: {prediction_dir}"
-        )
-
-    latest_run: tuple[int, Path] | None = None
-    for prediction_path in prediction_dir.iterdir():
-        if not prediction_path.is_file():
-            continue
-
-        parsed_name = parse_prediction_artifact_name(
-            prediction_path=prediction_path,
-            db_name=dataset_name,
-            outcome=outcome,
-        )
-        if parsed_name is None:
-            continue
-
-        artifact_policy, run_number = parsed_name
-        if artifact_policy != policy:
-            continue
-
-        if latest_run is None or run_number > latest_run[0]:
-            latest_run = (run_number, prediction_path)
-
-    if latest_run is None:
-        return None
-
-    return latest_run[1]
-
-
-def find_required_prediction_paths(
-    prediction_dir: Path,
+def resolve_required_prediction_paths(
+    manifest_prediction_paths: Mapping[str, Path],
     dataset_name: str,
     outcome: str,
     champion_policy: str,
     baseline_policy: str = DEFAULT_BASELINE_POLICY,
 ) -> dict[str, Path]:
-    """Find prediction artifacts required for locked-test reporting."""
+    """Resolve locked-test prediction artifacts from manifest paths."""
     policies = sorted({champion_policy, baseline_policy})
     policy_paths: dict[str, Path] = {}
 
     for policy in policies:
-        prediction_path = find_latest_policy_prediction_path(
-            prediction_dir=prediction_dir,
-            dataset_name=dataset_name,
-            outcome=outcome,
-            policy=policy,
-        )
+        prediction_path = manifest_prediction_paths.get(policy)
         if prediction_path is None:
             role = (
                 "Champion"
@@ -121,8 +81,8 @@ def find_required_prediction_paths(
             )
             raise ValueError(
                 f"{role} prediction artifact is missing for policy '{policy}', "
-                f"outcome '{outcome}', and dataset '{dataset_name}' in "
-                f"{prediction_dir}."
+                f"outcome '{outcome}', and dataset '{dataset_name}' in the "
+                "experiment manifest."
             )
 
         policy_paths[policy] = prediction_path
@@ -162,9 +122,14 @@ def load_locked_test_prediction_frames(
 
         test_frame["artifact_name"] = prediction_path.name
         test_frame["policy_name"] = policy
+        validate_prediction_frame(test_frame)
         policy_frames[policy] = test_frame
 
-    return policy_frames
+    return align_frames_by_row_id(
+        policy_frames,
+        label_columns=("treatment", "outcome", "split"),
+        context="Locked-test prediction frames",
+    )
 
 
 def calculate_locked_test_rows(
@@ -266,7 +231,7 @@ def save_locked_test_evaluation_artifact(
 
 
 def save_locked_test_evaluation(
-    prediction_dir: Path,
+    manifest_prediction_paths: Mapping[str, Path],
     metric_dir: Path,
     dataset_name: str,
     outcome: str,
@@ -278,8 +243,8 @@ def save_locked_test_evaluation(
     selection_payload = load_selection_gate_payload(selection_artifact_path)
     champion_policy = get_champion_policy(selection_payload)
     fractions = tuple(float(fraction) for fraction in budget_fractions)
-    prediction_paths = find_required_prediction_paths(
-        prediction_dir=prediction_dir,
+    prediction_paths = resolve_required_prediction_paths(
+        manifest_prediction_paths=manifest_prediction_paths,
         dataset_name=dataset_name,
         outcome=outcome,
         champion_policy=champion_policy,

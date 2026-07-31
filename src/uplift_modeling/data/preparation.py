@@ -1,12 +1,16 @@
 """Dataset preparation decisions for Phase 1 Criteo modeling."""
 
 from pathlib import Path
-
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from uplift_modeling.data.criteo import FEATURE_COLUMNS
-
+from uplift_modeling.data.row_id import (
+    ROW_ID_COLUMN,
+    add_row_id,
+    validate_row_id_column,
+)
 
 def _validate_columns(
     dataframe: pd.DataFrame,
@@ -84,9 +88,12 @@ def build_decision_frame(
     after treatment and is leakage-prone.
     """
     selected_columns = (*feature_columns, treatment_column, *outcome_columns)
-    _validate_columns(dataframe, selected_columns)
 
-    return dataframe.loc[:, selected_columns].copy()
+    if ROW_ID_COLUMN in dataframe.columns:
+        selected_columns = (ROW_ID_COLUMN, *selected_columns)
+
+    _validate_columns(dataframe, selected_columns)
+    return add_row_id(dataframe.loc[:, selected_columns])
 
 
 def assign_stratified_split(
@@ -107,44 +114,51 @@ def assign_stratified_split(
     _validate_columns(dataframe, (treatment_column, outcome_column))
 
     decision_dataset = dataframe.copy()
-    row_indices = decision_dataset.index.to_series()
+    validate_row_id_column(
+        decision_dataset,
+        context="Decision dataset",
+    )
+
+    row_positions = np.arange(len(decision_dataset))
     stratification_key = _joint_stratification_key(
         decision_dataset,
         treatment_column=treatment_column,
         outcome_column=outcome_column,
     )
 
-    train_indices, holdout_indices = train_test_split(
-        row_indices,
+    train_positions, holdout_positions = train_test_split(
+        row_positions,
         train_size=train_size,
         random_state=random_state,
         shuffle=True,
-        stratify=stratification_key,
+        stratify=stratification_key.to_numpy(),
     )
 
-    holdout_dataset = decision_dataset.loc[holdout_indices]
+    holdout_dataset = decision_dataset.iloc[holdout_positions]
     holdout_stratification_key = _joint_stratification_key(
         holdout_dataset,
         treatment_column=treatment_column,
         outcome_column=outcome_column,
     )
+
     validation_share_of_holdout = validation_size / (
         validation_size + test_size
     )
 
-    validation_indices, test_indices = train_test_split(
-        holdout_indices,
+    validation_positions, test_positions = train_test_split(
+        holdout_positions,
         train_size=validation_share_of_holdout,
         random_state=random_state,
         shuffle=True,
-        stratify=holdout_stratification_key,
+        stratify=holdout_stratification_key.to_numpy(),
     )
 
-    decision_dataset[split_column] = ""
-    decision_dataset.loc[train_indices, split_column] = "train"
-    decision_dataset.loc[validation_indices, split_column] = "validation"
-    decision_dataset.loc[test_indices, split_column] = "test"
+    split_values = np.empty(len(decision_dataset), dtype=object)
+    split_values[train_positions] = "train"
+    split_values[validation_positions] = "validation"
+    split_values[test_positions] = "test"
 
+    decision_dataset[split_column] = split_values
     return decision_dataset
 
 
@@ -160,9 +174,11 @@ def build_decision_dataset(
 ) -> pd.DataFrame:
     """Build one outcome-specific Criteo decision dataset."""
     selected_columns = (*feature_columns, treatment_column, outcome_column)
+    if ROW_ID_COLUMN in dataframe.columns:
+        selected_columns = (ROW_ID_COLUMN, *selected_columns)
     _validate_columns(dataframe, selected_columns)
 
-    outcome_dataset = dataframe.loc[:, selected_columns].copy()
+    outcome_dataset = add_row_id(dataframe.loc[:, selected_columns])
     return assign_stratified_split(
         outcome_dataset,
         outcome_column=outcome_column,

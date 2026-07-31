@@ -6,14 +6,16 @@ scores are expected to be uplift scores.
 """
 
 from collections.abc import Iterable
-import logging
 
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
+from uplift_modeling.data.row_id import ROW_ID_COLUMN, validate_row_id_column
+
 
 PREDICTION_COLUMNS: tuple[str, ...] = (
+    ROW_ID_COLUMN,
     "treatment",
     "outcome",
     "split",
@@ -22,13 +24,11 @@ PREDICTION_COLUMNS: tuple[str, ...] = (
 )
 
 
-LOGGER = logging.getLogger(__name__)
-ROW_ID_COLUMN = "row_id"
-
-
 def validate_prediction_frame(
     predictions: pd.DataFrame,
     required_columns: Iterable[str] = PREDICTION_COLUMNS,
+    *,
+    require_unique_row_id: bool = True,
 ) -> None:
     """Validate the shared prediction-frame contract for ranked evaluation."""
     missing_columns = sorted(
@@ -41,6 +41,8 @@ def validate_prediction_frame(
 
     if predictions.empty:
         raise ValueError("Prediction frame must contain at least one row.")
+
+    validate_row_id_column(predictions, context="Prediction frame", require_unique=require_unique_row_id)
 
     binary_columns = ("treatment", "outcome")
     non_numeric_columns = [
@@ -78,26 +80,20 @@ def validate_prediction_frame(
         )
 
 
-def rank_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
+def rank_predictions(
+    predictions: pd.DataFrame,
+    *,
+    require_unique_row_id: bool = True,
+) -> pd.DataFrame:
     """Return predictions ordered by score with stable tie handling."""
-    if ROW_ID_COLUMN in predictions.columns:
-        return predictions.sort_values(
-            ["score", ROW_ID_COLUMN],
-            ascending=[False, True],
-            kind="mergesort",
-        ).reset_index(drop=True)
-
-    tied_score_rows = int(predictions["score"].duplicated(keep=False).sum())
-    if tied_score_rows:
-        LOGGER.info(
-            "Score tie diagnostics: %s tied rows across %s unique scores.",
-            tied_score_rows,
-            predictions["score"].nunique(),
-        )
-
+    validate_row_id_column(
+        predictions,
+        context="Prediction frame",
+        require_unique=require_unique_row_id,
+    )
     return predictions.sort_values(
-        "score",
-        ascending=False,
+        ["score", ROW_ID_COLUMN],
+        ascending=[False, True],
         kind="mergesort",
     ).reset_index(drop=True)
 
@@ -228,6 +224,8 @@ def calculate_qini(curve: pd.DataFrame) -> float:
 def calculate_policy_value(
     predictions: pd.DataFrame,
     top_fraction: float = 0.3,
+    *,
+    require_unique_row_id: bool = True,
 ) -> float:
     """Estimate IPW-style policy value for treating top-ranked rows.
 
@@ -235,7 +233,7 @@ def calculate_policy_value(
     rows. This is not the same as simple top-subset incremental outcome and is
     not final net business value.
     """
-    validate_prediction_frame(predictions)
+    validate_prediction_frame(predictions, require_unique_row_id=require_unique_row_id)
 
     if top_fraction <= 0 or top_fraction > 1:
         raise ValueError(
@@ -243,7 +241,7 @@ def calculate_policy_value(
             f"Received: {top_fraction}"
         )
 
-    ranked = rank_predictions(predictions)
+    ranked = rank_predictions(predictions, require_unique_row_id=require_unique_row_id)
     selected_count = max(1, int(np.ceil(len(ranked) * top_fraction)))
     selected = np.zeros(len(ranked), dtype=bool)
     selected[:selected_count] = True
@@ -270,13 +268,15 @@ def calculate_policy_value(
 def calculate_selected_incremental_outcome(
     predictions: pd.DataFrame,
     top_fraction: float = 0.3,
+    *,
+    require_unique_row_id: bool = True,
 ) -> float:
     """Calculate simple top-subset incremental outcome.
 
     The formula is:
     (mean_outcome_treated - mean_outcome_control) * selected_count.
     """
-    validate_prediction_frame(predictions)
+    validate_prediction_frame(predictions, require_unique_row_id=require_unique_row_id)
 
     if top_fraction <= 0 or top_fraction > 1:
         raise ValueError(
@@ -284,7 +284,7 @@ def calculate_selected_incremental_outcome(
             f"Received: {top_fraction}"
         )
 
-    ranked = rank_predictions(predictions)
+    ranked = rank_predictions(predictions, require_unique_row_id=require_unique_row_id)
     selected_count = max(1, int(np.ceil(len(ranked) * top_fraction)))
     selected = ranked.iloc[:selected_count]
     treated = selected.loc[selected["treatment"] == 1, "outcome"]
