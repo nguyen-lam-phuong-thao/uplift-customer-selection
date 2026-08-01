@@ -10,7 +10,6 @@ data:
 training:
   train_split: train
   validation_split: validation
-  test_split: test
   prediction_batch_size: 500000
   early_stopping_rounds: 100
   log_evaluation_period: 50
@@ -42,7 +41,6 @@ outputs:
   figure_dir: artifacts/figures
   prediction_splits:
     - validation
-    - test
 
 selection:
   primary_outcome: visit

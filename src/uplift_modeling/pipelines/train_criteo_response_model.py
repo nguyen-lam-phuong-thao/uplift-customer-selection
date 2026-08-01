@@ -40,8 +40,8 @@ from uplift_modeling.utils.config import (
 
 
 LOGGER = logging.getLogger(__name__)
-ALLOWED_PREDICTION_SPLITS = ("train", "validation", "test")
-DEFAULT_PREDICTION_SPLITS = ("validation", "test")
+ALLOWED_PREDICTION_SPLITS = ("validation",)
+DEFAULT_PREDICTION_SPLITS = ("validation",)
 
 
 def parse_args() -> argparse.Namespace:
@@ -251,7 +251,7 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
     output_config = get_config_section(config, "outputs")
     tracking_config = get_tracking_config(config)
     debug_config = get_debug_config(config)
-    prediction_splits = get_prediction_splits(output_config)
+    get_prediction_splits(output_config)
 
     dataset_spec = resolve_dataset_spec(data_config)
     dataset_name = dataset_spec.name
@@ -263,7 +263,6 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
     validation_split = str(
         training_config.get("validation_split", "validation")
     )
-    test_split = str(training_config.get("test_split", "test"))
     prediction_batch_size = int(training_config["prediction_batch_size"])
     early_stopping_rounds = int(training_config["early_stopping_rounds"])
     log_evaluation_period = int(training_config["log_evaluation_period"])
@@ -329,12 +328,6 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
         split_column,
         validation_split,
     )
-    test_frame = get_split_frame(dataframe, split_column, test_split)
-    split_frames = {
-        "train": train_frame,
-        "validation": validation_frame,
-        "test": test_frame,
-    }
     treated_train_frame = train_frame.loc[
         train_frame[treatment_column] == 1
     ].copy()
@@ -363,7 +356,6 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
         "Treated validation rows used for early stopping: %s",
         len(treated_validation_frame),
     )
-    LOGGER.info("Full test rows: %s", len(test_frame))
 
     LOGGER.info("Training %s for %s", model_name, outcome)
     model = build_response_model(model_params)
@@ -380,10 +372,6 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
     validation_scores = model.predict_proba(
         validation_frame.loc[:, feature_columns],
     )[:, 1]
-    test_scores = model.predict_proba(
-        test_frame.loc[:, feature_columns],
-    )[:, 1]
-
     metrics = {
         "dataset_name": dataset_name,
         "outcome": outcome,
@@ -393,14 +381,10 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
             validation_frame[target_column],
             validation_scores,
         ),
-        "test": calculate_binary_metrics(
-            test_frame[target_column],
-            test_scores,
-        ),
     }
 
     save_prediction_parquet_in_batches(
-        dataframes=tuple(split_frames[split] for split in prediction_splits),
+        dataframes=(validation_frame,),
         output_path=prediction_path,
         feature_columns=feature_columns,
         treatment_column=treatment_column,
@@ -432,7 +416,6 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
         "debug_random_state": int(debug_config["random_state"]),
         "train_rows": int(len(train_frame)),
         "validation_rows": int(len(validation_frame)),
-        "test_rows": int(len(test_frame)),
         **model_params,
     }
     mlflow_metrics = {
@@ -441,9 +424,6 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
             "average_precision"
         ],
         "validation_log_loss": metrics["validation"]["log_loss"],
-        "test_roc_auc": metrics["test"]["roc_auc"],
-        "test_average_precision": metrics["test"]["average_precision"],
-        "test_log_loss": metrics["test"]["log_loss"],
     }
 
     with mlflow.start_run(run_name=f"{outcome}_{model_name}"):

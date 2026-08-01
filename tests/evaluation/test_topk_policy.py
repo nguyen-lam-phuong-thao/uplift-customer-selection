@@ -7,6 +7,8 @@ from uplift_modeling.evaluation.uplift_metrics import calculate_policy_value
 from uplift_modeling.evaluation.topk_policy import (
     build_random_policy_frame,
     calculate_topk_policy_metrics,
+    calculate_topk_policy_rows,
+    load_policy_prediction_frames,
     resolve_expected_policy_paths,
     save_topk_policy_evaluation,
 )
@@ -16,12 +18,12 @@ def _prediction_frame() -> pd.DataFrame:
     """Return a tiny prediction artifact frame."""
     return pd.DataFrame(
         {
-            "row_id": list(range(8)),
-            "treatment": [1, 0, 1, 0, 1, 0, 1, 0],
-            "outcome": [1, 0, 0, 1, 1, 0, 0, 0],
-            "split": ["validation"] * 4 + ["test"] * 4,
-            "score": [0.9, 0.8, 0.7, 0.6, 0.9, 0.8, 0.7, 0.6],
-            "model_name": ["t_learner_lgbm"] * 8,
+            "row_id": list(range(4)),
+            "treatment": [1, 0, 1, 0],
+            "outcome": [1, 0, 0, 1],
+            "split": ["validation"] * 4,
+            "score": [0.9, 0.8, 0.7, 0.6],
+            "model_name": ["t_learner_lgbm"] * 4,
         }
     )
 
@@ -34,7 +36,7 @@ def test_random_policy_frame_is_deterministic() -> None:
     second = build_random_policy_frame(frame, random_seed=42)
 
     assert first["score"].tolist() == second["score"].tolist()
-    assert first["row_id"].tolist() == list(range(8))
+    assert first["row_id"].tolist() == list(range(4))
     assert first["model_name"].unique().tolist() == ["random_targeting"]
 
 
@@ -183,3 +185,37 @@ def test_topk_policy_rejects_ambiguous_policy_aliases(tmp_path) -> None:
             },
             outcome="visit",
         )
+
+
+def test_calculate_topk_policy_rows_rejects_test_split() -> None:
+    """Direct standard Top-K row calculation cannot evaluate test rows."""
+    frame = _prediction_frame()
+    frame.loc[0, "split"] = "test"
+
+    with pytest.raises(ValueError, match="test split is reserved"):
+        calculate_topk_policy_rows({"t_learner_lgbm": frame})
+
+def test_topk_loader_checks_split_before_full_read(tmp_path, monkeypatch) -> None:
+    """Standard Top-K checks split before loading full prediction rows."""
+    prediction_path = tmp_path / "predictions.parquet"
+    frame = _prediction_frame()
+    frame.loc[0, "split"] = "test"
+    frame.to_parquet(prediction_path, index=False)
+
+    import uplift_modeling.evaluation.topk_policy as topk_policy
+
+    original_read_parquet = topk_policy.pd.read_parquet
+    read_columns = []
+
+    def tracking_read_parquet(*args, **kwargs):
+        read_columns.append(kwargs.get("columns"))
+        if kwargs.get("columns") is None:
+            raise AssertionError("Full artifact should not be loaded before rejection.")
+        return original_read_parquet(*args, **kwargs)
+
+    monkeypatch.setattr(topk_policy.pd, "read_parquet", tracking_read_parquet)
+
+    with pytest.raises(ValueError, match="test split is reserved"):
+        load_policy_prediction_frames({"t_learner_lgbm": prediction_path})
+
+    assert read_columns == [["split"]]

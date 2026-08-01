@@ -7,6 +7,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import pyarrow.parquet as pq
 
 from uplift_modeling.artifacts.json import save_json_artifact
 from uplift_modeling.artifacts.manifest import (
@@ -137,9 +138,9 @@ def load_prediction_artifacts(prediction_paths: list[Path]) -> pd.DataFrame:
 
     for prediction_path in prediction_paths:
         LOGGER.info("Loading predictions from %s", prediction_path)
-        frame = pd.read_parquet(prediction_path)
+        schema_columns = set(pq.read_schema(prediction_path).names)
         missing_columns = sorted(
-            set(PREDICTION_COLUMNS).difference(frame.columns)
+            set(PREDICTION_COLUMNS).difference(schema_columns)
         )
 
         if missing_columns:
@@ -149,6 +150,15 @@ def load_prediction_artifacts(prediction_paths: list[Path]) -> pd.DataFrame:
                 f"{missing_text}"
             )
 
+        split_frame = pd.read_parquet(prediction_path, columns=["split"])
+        if "test" in {str(split) for split in split_frame["split"].unique()}:
+            raise ValueError(
+                "Standard evaluation cannot load prediction artifacts "
+                "containing the test split. The test split is reserved for "
+                f"locked-test evaluation: {prediction_path}"
+            )
+
+        frame = pd.read_parquet(prediction_path)
         frame = frame.copy()
         frame["artifact_name"] = prediction_path.name
         validate_prediction_frame(frame)

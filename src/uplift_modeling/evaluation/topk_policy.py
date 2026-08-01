@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from uplift_modeling.artifacts.json import save_json_artifact
 from uplift_modeling.data.row_id import (
@@ -132,9 +133,9 @@ def load_policy_prediction_frames(
 
     for policy_name, prediction_path in policy_paths.items():
         LOGGER.info("Loading %s predictions from %s", policy_name, prediction_path)
-        frame = pd.read_parquet(prediction_path)
+        schema_columns = set(pq.read_schema(prediction_path).names)
         missing_columns = sorted(
-            set(PREDICTION_COLUMNS).difference(frame.columns)
+            set(PREDICTION_COLUMNS).difference(schema_columns)
         )
         if missing_columns:
             missing_text = ", ".join(missing_columns)
@@ -143,6 +144,15 @@ def load_policy_prediction_frames(
                 f"{missing_text}"
             )
 
+        split_frame = pd.read_parquet(prediction_path, columns=["split"])
+        if "test" in {str(split) for split in split_frame["split"].unique()}:
+            raise ValueError(
+                "Standard Top-K evaluation cannot load prediction artifacts "
+                "containing the test split. The test split is reserved for "
+                f"locked-test evaluation: {prediction_path}"
+            )
+
+        frame = pd.read_parquet(prediction_path)
         frame = frame.copy()
         frame["artifact_name"] = prediction_path.name
         frame["policy_name"] = policy_name
@@ -245,6 +255,10 @@ def calculate_topk_policy_rows(
     rows: list[dict[str, Any]] = []
 
     for policy_name, policy_frame in policy_frames.items():
+        validate_standard_evaluation_splits(
+            tuple(str(split) for split in policy_frame["split"].unique())
+        )
+
         for split, split_frame in policy_frame.groupby("split", sort=True):
             for budget_fraction in budget_fractions:
                 metrics = calculate_topk_policy_metrics(

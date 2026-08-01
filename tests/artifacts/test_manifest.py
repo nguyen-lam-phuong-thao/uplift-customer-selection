@@ -272,6 +272,50 @@ def test_find_latest_prediction_artifacts_skips_schema_incompatible_files(
     assert artifacts == {"t_learner_lgbm": valid_previous}
 
 
+def test_find_latest_prediction_artifacts_skips_test_split_files(
+    tmp_path,
+) -> None:
+    """Manifest discovery ignores normal artifacts containing test rows."""
+    prediction_dir = tmp_path / "predictions"
+    prediction_dir.mkdir()
+    invalid_latest = (
+        prediction_dir
+        / "criteo_conversion_t_learner_lgbm_run03_predictions.parquet"
+    )
+    valid_previous = (
+        prediction_dir
+        / "criteo_conversion_t_learner_lgbm_run02_predictions.parquet"
+    )
+    pd.DataFrame(
+        {
+            "row_id": [1, 2],
+            "treatment": [1, 0],
+            "outcome": [1, 0],
+            "split": ["validation", "test"],
+            "score": [0.5, 0.4],
+            "model_name": ["t_learner_lgbm"] * 2,
+        }
+    ).to_parquet(invalid_latest, index=False)
+    pd.DataFrame(
+        {
+            "row_id": [1],
+            "treatment": [1],
+            "outcome": [1],
+            "split": ["validation"],
+            "score": [0.5],
+            "model_name": ["t_learner_lgbm"],
+        }
+    ).to_parquet(valid_previous, index=False)
+
+    artifacts = find_latest_prediction_artifacts(
+        prediction_dir=prediction_dir,
+        dataset_name="criteo",
+        outcome="conversion",
+    )
+
+    assert artifacts == {"t_learner_lgbm": valid_previous}
+
+
 def test_find_latest_prediction_artifacts_rejects_missing_requested_model(
     tmp_path,
 ) -> None:

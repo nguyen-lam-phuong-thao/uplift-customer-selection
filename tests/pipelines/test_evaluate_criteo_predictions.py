@@ -59,12 +59,12 @@ def _prediction_frame(model_name: str, score: float = 0.8) -> pd.DataFrame:
     """Return a small prediction artifact frame."""
     return pd.DataFrame(
         {
-            "row_id": list(range(8)),
-            "treatment": [1, 0, 1, 0, 1, 0, 1, 0],
-            "outcome": [1, 0, 0, 1, 1, 0, 0, 0],
-            "split": ["validation"] * 4 + ["test"] * 4,
-            "score": [score, 0.7, 0.6, 0.5, score, 0.7, 0.6, 0.5],
-            "model_name": [model_name] * 8,
+            "row_id": list(range(4)),
+            "treatment": [1, 0, 1, 0],
+            "outcome": [1, 0, 0, 1],
+            "split": ["validation"] * 4,
+            "score": [score, 0.7, 0.6, 0.5],
+            "model_name": [model_name] * 4,
         }
     )
 
@@ -104,6 +104,24 @@ def test_standard_metric_calculation_rejects_test_rows() -> None:
 
     with pytest.raises(ValueError, match="test split is reserved"):
         pipeline.calculate_split_metrics(predictions, top_fraction=0.5)
+
+
+def test_standard_artifact_loading_rejects_test_rows(tmp_path) -> None:
+    """Standard evaluation fails before accepting artifacts with test rows."""
+    prediction_path = tmp_path / "predictions.parquet"
+    pd.DataFrame(
+        {
+            "row_id": [1, 2, 3, 4],
+            "treatment": [1, 0, 1, 0],
+            "outcome": [1, 0, 1, 0],
+            "split": ["validation", "validation", "test", "test"],
+            "score": [0.4, 0.3, 0.2, 0.1],
+            "model_name": ["model"] * 4,
+        }
+    ).to_parquet(prediction_path, index=False)
+
+    with pytest.raises(ValueError, match="test split is reserved"):
+        pipeline.load_prediction_artifacts([prediction_path])
 
 
 def test_skip_bootstrap_skips_bootstrap_and_selection_gate(
@@ -491,3 +509,36 @@ def test_standard_evaluation_uses_only_manifest_listed_artifacts(tmp_path) -> No
     payload = json.loads(evaluation_path.read_text(encoding="utf-8"))
 
     assert payload["prediction_artifacts"] == [manifest_prediction_path.name]
+
+def test_standard_artifact_loading_checks_split_before_full_read(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Standard evaluation checks split before loading full prediction rows."""
+    prediction_path = tmp_path / "predictions.parquet"
+    pd.DataFrame(
+        {
+            "row_id": [1, 2, 3, 4],
+            "treatment": [1, 0, 1, 0],
+            "outcome": [1, 0, 1, 0],
+            "split": ["validation", "validation", "test", "test"],
+            "score": [0.4, 0.3, 0.2, 0.1],
+            "model_name": ["model"] * 4,
+        }
+    ).to_parquet(prediction_path, index=False)
+
+    original_read_parquet = pipeline.pd.read_parquet
+    read_columns = []
+
+    def tracking_read_parquet(*args, **kwargs):
+        read_columns.append(kwargs.get("columns"))
+        if kwargs.get("columns") is None:
+            raise AssertionError("Full artifact should not be loaded before rejection.")
+        return original_read_parquet(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline.pd, "read_parquet", tracking_read_parquet)
+
+    with pytest.raises(ValueError, match="test split is reserved"):
+        pipeline.load_prediction_artifacts([prediction_path])
+
+    assert read_columns == [["split"]]

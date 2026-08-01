@@ -160,6 +160,15 @@ def find_latest_prediction_artifacts(
                 f"{', '.join(missing_columns)}"
             )
             continue
+        split_values = pq.read_table(
+            prediction_path,
+            columns=["split"],
+        ).column("split").to_pylist()
+        if "test" in {str(split) for split in split_values}:
+            rejected_by_model.setdefault(manifest_model_name, []).append(
+                f"{prediction_path.name} contains test split rows"
+            )
+            continue
 
         run_number = int(match.group("run_number"))
         current = latest_by_model.get(manifest_model_name)

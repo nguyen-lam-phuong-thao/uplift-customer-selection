@@ -90,7 +90,7 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
     output_config = get_config_section(config, "outputs")
     tracking_config = get_tracking_config(config)
     debug_config = get_debug_config(config)
-    prediction_splits = get_prediction_splits(output_config)
+    get_prediction_splits(output_config)
 
     dataset_spec = resolve_dataset_spec(data_config)
     dataset_name = dataset_spec.name
@@ -102,7 +102,6 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
     validation_split = str(
         training_config.get("validation_split", "validation")
     )
-    test_split = str(training_config.get("test_split", "test"))
     prediction_batch_size = int(training_config["prediction_batch_size"])
     early_stopping_rounds = int(training_config["early_stopping_rounds"])
     log_evaluation_period = int(training_config["log_evaluation_period"])
@@ -151,12 +150,6 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
         split_column,
         validation_split,
     )
-    test_frame = get_split_frame(dataframe, split_column, test_split)
-    split_frames = {
-        "train": train_frame,
-        "validation": validation_frame,
-        "test": test_frame,
-    }
 
     treatment_train = get_treatment_group(
         train_frame,
@@ -197,7 +190,7 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
     )
 
     save_prediction_parquet_in_batches(
-        dataframes=tuple(split_frames[split] for split in prediction_splits),
+        dataframes=(validation_frame,),
         output_path=prediction_path,
         feature_columns=feature_columns,
         treatment_column=treatment_column,
@@ -232,7 +225,6 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
         "debug_random_state": int(debug_config["random_state"]),
         "train_rows": int(len(train_frame)),
         "validation_rows": int(len(validation_frame)),
-        "test_rows": int(len(test_frame)),
         "treatment_train_rows": int(len(treatment_train)),
         "control_train_rows": int(len(control_train)),
         **model_params,

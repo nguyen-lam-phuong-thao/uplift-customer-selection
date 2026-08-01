@@ -77,7 +77,7 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
     output_config = get_config_section(config, "outputs")
     tracking_config = get_tracking_config(config)
     debug_config = get_debug_config(config)
-    prediction_splits = get_prediction_splits(output_config)
+    get_prediction_splits(output_config)
 
     dataset_spec = resolve_dataset_spec(data_config)
     dataset_name = dataset_spec.name
@@ -89,7 +89,6 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
     validation_split = str(
         training_config.get("validation_split", "validation")
     )
-    test_split = str(training_config.get("test_split", "test"))
     prediction_batch_size = int(training_config["prediction_batch_size"])
     early_stopping_rounds = int(training_config["early_stopping_rounds"])
     log_evaluation_period = int(training_config["log_evaluation_period"])
@@ -138,12 +137,6 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
         split_column,
         validation_split,
     )
-    test_frame = get_split_frame(dataframe, split_column, test_split)
-    split_frames = {
-        "train": train_frame,
-        "validation": validation_frame,
-        "test": test_frame,
-    }
 
     treatment_train = get_treatment_group(
         train_frame,
@@ -172,7 +165,6 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
 
     LOGGER.info("Train rows: %s", len(train_frame))
     LOGGER.info("Validation rows: %s", len(validation_frame))
-    LOGGER.info("Test rows: %s", len(test_frame))
     LOGGER.info("Treatment train rows: %s", len(treatment_train))
     LOGGER.info("Control train rows: %s", len(control_train))
     LOGGER.info("Treatment validation rows: %s", len(treatment_valid))
@@ -221,21 +213,11 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
         ),
         features=validation_frame.loc[:, feature_columns],
     )
-    test_scores = predict_x_learner_scores(
-        treatment_effect_model=x_learner_result.treatment_effect_model,
-        control_effect_model=x_learner_result.control_effect_model,
-        constant_treatment_rate_weight=(
-            x_learner_result.constant_treatment_rate_weight
-        ),
-        features=test_frame.loc[:, feature_columns],
-    )
     validation_score_summary = summarize_values(validation_scores)
-    test_score_summary = summarize_values(test_scores)
     LOGGER.info("Validation score summary: %s", validation_score_summary)
-    LOGGER.info("Test score summary: %s", test_score_summary)
 
     save_prediction_parquet_in_batches(
-        dataframes=tuple(split_frames[split] for split in prediction_splits),
+        dataframes=(validation_frame,),
         output_path=prediction_path,
         feature_columns=feature_columns,
         treatment_column=treatment_column,
@@ -273,7 +255,6 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
         "debug_random_state": int(debug_config["random_state"]),
         "train_rows": int(len(train_frame)),
         "validation_rows": int(len(validation_frame)),
-        "test_rows": int(len(test_frame)),
         "treatment_train_rows": int(len(treatment_train)),
         "control_train_rows": int(len(control_train)),
         "constant_treatment_rate_weight": float(
@@ -308,10 +289,6 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
         **{
             f"validation_score_{key}": float(value)
             for key, value in validation_score_summary.items()
-        },
-        **{
-            f"test_score_{key}": float(value)
-            for key, value in test_score_summary.items()
         },
     }
 
