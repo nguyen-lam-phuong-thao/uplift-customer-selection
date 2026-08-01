@@ -5,12 +5,16 @@ from __future__ import annotations
 import glob
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import pyarrow.parquet as pq
 
 from uplift_modeling.artifacts.json import save_json_artifact
+from uplift_modeling.artifacts.model_provenance import (
+    load_prediction_model_provenance,
+)
 
 
 EXPERIMENT_MANIFEST_ARTIFACT_TYPE = "experiment_manifest"
@@ -66,6 +70,7 @@ def build_experiment_manifest(
     outcome: str,
     config_path: str | Path,
     prediction_artifacts: dict[str, str | Path],
+    model_artifacts: dict[str, dict[str, Any]] | None = None,
     project_root: Path | None = None,
 ) -> dict[str, Any]:
     """Build an experiment manifest payload."""
@@ -82,12 +87,22 @@ def build_experiment_manifest(
             )
         },
     }
+    if model_artifacts:
+        payload["model_artifacts"] = model_artifacts
+
     validate_experiment_manifest(
         manifest=payload,
         dataset_name=dataset_name,
         outcome=outcome,
     )
     return payload
+
+
+def build_experiment_manifest_model_artifacts(
+    prediction_artifacts: dict[str, Path],
+) -> dict[str, dict[str, Any]]:
+    """Load model provenance sidecars for discovered prediction artifacts."""
+    return load_prediction_model_provenance(prediction_artifacts)
 
 
 def save_experiment_manifest(
@@ -365,6 +380,60 @@ def resolve_prediction_paths(
         resolved_paths[policy_name] = prediction_path
 
     return resolved_paths
+
+
+def resolve_model_artifacts(
+    manifest: dict[str, Any],
+    required_policies: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    """Resolve locked-test model artifact metadata from a manifest."""
+    model_artifacts = manifest.get("model_artifacts")
+    if not isinstance(model_artifacts, dict):
+        raise ValueError(
+            "Experiment manifest must contain a 'model_artifacts' mapping "
+            "for locked-test scoring."
+        )
+
+    resolved_artifacts: dict[str, dict[str, Any]] = {}
+    for policy_name in required_policies:
+        model_artifact = model_artifacts.get(policy_name)
+        if not isinstance(model_artifact, dict):
+            raise ValueError(
+                "Experiment manifest is missing model provenance for "
+                f"policy/model '{policy_name}'."
+            )
+        resolved_artifacts[policy_name] = model_artifact
+
+    return resolved_artifacts
+
+
+def validate_model_artifacts_match_predictions(
+    model_artifacts: Mapping[str, Mapping[str, Any]],
+    prediction_paths: Mapping[str, Path],
+) -> None:
+    """Validate model provenance is tied to the manifest prediction files."""
+    for policy_name, model_artifact in model_artifacts.items():
+        prediction_path = prediction_paths.get(policy_name)
+        if prediction_path is None:
+            raise ValueError(
+                "Cannot validate model provenance without a prediction "
+                f"artifact for policy/model '{policy_name}'."
+            )
+
+        prediction_artifact = model_artifact.get("prediction_artifact")
+        if not isinstance(prediction_artifact, str) or not prediction_artifact:
+            raise ValueError(
+                "Model provenance for policy/model "
+                f"'{policy_name}' must contain a non-empty "
+                "'prediction_artifact' string."
+            )
+        if prediction_artifact != prediction_path.name:
+            raise ValueError(
+                "Model provenance for policy/model "
+                f"'{policy_name}' is tied to prediction artifact "
+                f"'{prediction_artifact}', but the manifest references "
+                f"'{prediction_path.name}'."
+            )
 
 
 def _has_config_identity(manifest: dict[str, Any]) -> bool:

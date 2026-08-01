@@ -8,9 +8,12 @@ import pytest
 
 from uplift_modeling.artifacts.manifest import (
     build_experiment_manifest,
+    build_experiment_manifest_model_artifacts,
     find_latest_prediction_artifacts,
     load_experiment_manifest,
+    resolve_model_artifacts,
     resolve_prediction_paths,
+    validate_model_artifacts_match_predictions,
 )
 
 
@@ -202,6 +205,69 @@ def test_build_manifest_uses_repository_relative_prediction_paths(tmp_path) -> N
     assert manifest["prediction_artifacts"] == {
         "t_learner_lgbm": "artifacts/predictions.parquet",
     }
+
+
+def test_manifest_creation_loads_prediction_model_provenance(tmp_path) -> None:
+    """Manifest creation picks up sidecar provenance next to predictions."""
+    prediction_path = (
+        tmp_path / "criteo_visit_t_learner_lgbm_run01_predictions.parquet"
+    )
+    _write_prediction_artifact(prediction_path)
+    provenance_path = (
+        tmp_path / "criteo_visit_t_learner_lgbm_run01_model_provenance.json"
+    )
+    provenance = {
+        "artifact_type": "model_provenance",
+        "dataset_name": "criteo",
+        "outcome": "visit",
+        "policy_name": "t_learner_lgbm",
+        "prediction_artifact": prediction_path.name,
+        "model_kind": "t_learner",
+        "mlflow_run_id": "run-001",
+        "treatment_model_uri": "runs:/run-001/treatment_model",
+        "control_model_uri": "runs:/run-001/control_model",
+    }
+    provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+
+    model_artifacts = build_experiment_manifest_model_artifacts(
+        {"t_learner_lgbm": prediction_path}
+    )
+
+    assert model_artifacts == {"t_learner_lgbm": provenance}
+
+
+def test_locked_test_model_artifact_resolution_requires_provenance(
+    tmp_path,
+) -> None:
+    """Locked-test model resolution rejects manifests without provenance."""
+    prediction_path = tmp_path / "run01_predictions.parquet"
+    prediction_path.touch()
+    manifest = _base_payload(prediction_path)
+
+    with pytest.raises(ValueError, match="model_artifacts"):
+        resolve_model_artifacts(
+            manifest=manifest,
+            required_policies=("t_learner_lgbm",),
+        )
+
+
+def test_model_provenance_must_match_manifest_prediction_artifact(
+    tmp_path,
+) -> None:
+    """Model provenance must be tied to the validation prediction artifact."""
+    prediction_path = tmp_path / "run01_predictions.parquet"
+    prediction_path.touch()
+    model_artifacts = {
+        "t_learner_lgbm": {
+            "prediction_artifact": "different_predictions.parquet",
+        },
+    }
+
+    with pytest.raises(ValueError, match="different_predictions.parquet"):
+        validate_model_artifacts_match_predictions(
+            model_artifacts=model_artifacts,
+            prediction_paths={"t_learner_lgbm": prediction_path},
+        )
 
 
 def test_find_latest_prediction_artifacts_uses_latest_run_per_model(

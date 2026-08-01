@@ -8,6 +8,11 @@ import mlflow
 import mlflow.lightgbm
 import pandas as pd
 
+from uplift_modeling.artifacts.model_provenance import (
+    build_model_provenance_payload,
+    get_model_provenance_path,
+    save_model_provenance_payload,
+)
 from uplift_modeling.artifacts.naming import (
     build_artifact_filename,
     find_next_run_number,
@@ -16,6 +21,7 @@ from uplift_modeling.artifacts.naming import (
 from uplift_modeling.artifacts.predictions import (
     save_prediction_parquet_in_batches,
 )
+from uplift_modeling.models.scoring import T_LEARNER_MODEL_KIND
 from uplift_modeling.models.t_learner import (
     fit_t_learner,
     predict_t_learner_scores,
@@ -244,7 +250,7 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
         ),
     }
 
-    with mlflow.start_run(run_name=f"{outcome}_{model_name}"):
+    with mlflow.start_run(run_name=f"{outcome}_{model_name}") as run:
         mlflow.log_params(mlflow_params)
         mlflow.log_metrics(mlflow_metrics)
 
@@ -260,7 +266,27 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
             artifact_path="control_model",
         )
 
+    provenance_path = get_model_provenance_path(prediction_path)
+    save_model_provenance_payload(
+        build_model_provenance_payload(
+            dataset_name=dataset_name,
+            outcome=outcome,
+            policy_name=model_name,
+            prediction_path=prediction_path,
+            model_kind=T_LEARNER_MODEL_KIND,
+            mlflow_run_id=run.info.run_id,
+            model_artifacts={
+                "treatment_model_uri": (
+                    f"runs:/{run.info.run_id}/treatment_model"
+                ),
+                "control_model_uri": f"runs:/{run.info.run_id}/control_model",
+            },
+        ),
+        provenance_path,
+    )
+
     LOGGER.info("Saved T-Learner predictions to %s", prediction_path)
+    LOGGER.info("Saved T-Learner model provenance to %s", provenance_path)
 
 
 def main() -> None:

@@ -11,6 +11,11 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from uplift_modeling.artifacts.json import save_json_artifact
+from uplift_modeling.artifacts.model_provenance import (
+    build_model_provenance_payload,
+    get_model_provenance_path,
+    save_model_provenance_payload,
+)
 from uplift_modeling.artifacts.naming import (
     build_artifact_filename,
     find_next_run_number,
@@ -30,6 +35,7 @@ from uplift_modeling.models.response_model import (
     build_response_model,
     fit_response_model,
 )
+from uplift_modeling.models.scoring import RESPONSE_MODEL_KIND
 from uplift_modeling.tracking.mlflow_tracking import setup_mlflow
 from uplift_modeling.utils.config import (
     get_config_section,
@@ -426,7 +432,7 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
         "validation_log_loss": metrics["validation"]["log_loss"],
     }
 
-    with mlflow.start_run(run_name=f"{outcome}_{model_name}"):
+    with mlflow.start_run(run_name=f"{outcome}_{model_name}") as run:
         mlflow.log_params(mlflow_params)
         mlflow.log_metrics(mlflow_metrics)
         mlflow.log_artifact(str(metrics_path))
@@ -436,8 +442,25 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
 
         mlflow.lightgbm.log_model(model, artifact_path="model")
 
+    provenance_path = get_model_provenance_path(prediction_path)
+    save_model_provenance_payload(
+        build_model_provenance_payload(
+            dataset_name=dataset_name,
+            outcome=outcome,
+            policy_name=model_name,
+            prediction_path=prediction_path,
+            model_kind=RESPONSE_MODEL_KIND,
+            mlflow_run_id=run.info.run_id,
+            model_artifacts={
+                "model_uri": f"runs:/{run.info.run_id}/model",
+            },
+        ),
+        provenance_path,
+    )
+
     LOGGER.info("Saved predictions to %s", prediction_path)
     LOGGER.info("Saved metrics to %s", metrics_path)
+    LOGGER.info("Saved model provenance to %s", provenance_path)
 
 
 def main() -> None:

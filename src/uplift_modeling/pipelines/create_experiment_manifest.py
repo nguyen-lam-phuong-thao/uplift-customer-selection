@@ -6,6 +6,7 @@ from pathlib import Path
 
 from uplift_modeling.artifacts.manifest import (
     build_experiment_manifest,
+    build_experiment_manifest_model_artifacts,
     find_latest_prediction_artifacts,
     save_experiment_manifest,
 )
@@ -128,6 +129,9 @@ def create_experiment_manifest(
         outcome=outcome,
         config_path=config_path,
         prediction_artifacts=prediction_artifacts,
+        model_artifacts=build_experiment_manifest_model_artifacts(
+            prediction_artifacts
+        ),
         project_root=project_root,
     )
     output_path = get_manifest_output_path(

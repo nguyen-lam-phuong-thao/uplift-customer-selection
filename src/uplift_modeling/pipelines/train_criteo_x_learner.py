@@ -7,6 +7,11 @@ from pathlib import Path
 import mlflow
 import mlflow.lightgbm
 
+from uplift_modeling.artifacts.model_provenance import (
+    build_model_provenance_payload,
+    get_model_provenance_path,
+    save_model_provenance_payload,
+)
 from uplift_modeling.artifacts.naming import (
     build_artifact_filename,
     find_next_run_number,
@@ -15,6 +20,7 @@ from uplift_modeling.artifacts.naming import (
 from uplift_modeling.artifacts.predictions import (
     save_prediction_parquet_in_batches,
 )
+from uplift_modeling.models.scoring import X_LEARNER_MODEL_KIND
 from uplift_modeling.models.x_learner import (
     fit_x_learner,
     predict_x_learner_scores,
@@ -292,7 +298,7 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
         },
     }
 
-    with mlflow.start_run(run_name=f"{outcome}_{model_name}"):
+    with mlflow.start_run(run_name=f"{outcome}_{model_name}") as run:
         mlflow.log_params(mlflow_params)
         mlflow.log_metrics(mlflow_metrics)
 
@@ -316,7 +322,32 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
             artifact_path="tau0_model",
         )
 
+    provenance_path = get_model_provenance_path(prediction_path)
+    save_model_provenance_payload(
+        build_model_provenance_payload(
+            dataset_name=dataset_name,
+            outcome=outcome,
+            policy_name=model_name,
+            prediction_path=prediction_path,
+            model_kind=X_LEARNER_MODEL_KIND,
+            mlflow_run_id=run.info.run_id,
+            model_artifacts={
+                "treatment_effect_model_uri": (
+                    f"runs:/{run.info.run_id}/tau1_model"
+                ),
+                "control_effect_model_uri": (
+                    f"runs:/{run.info.run_id}/tau0_model"
+                ),
+                "constant_treatment_rate_weight": float(
+                    x_learner_result.constant_treatment_rate_weight
+                ),
+            },
+        ),
+        provenance_path,
+    )
+
     LOGGER.info("Saved X-Learner predictions to %s", prediction_path)
+    LOGGER.info("Saved X-Learner model provenance to %s", provenance_path)
 
 
 def main() -> None:

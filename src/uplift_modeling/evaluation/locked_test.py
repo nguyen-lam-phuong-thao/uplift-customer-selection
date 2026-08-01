@@ -13,13 +13,23 @@ import pandas as pd
 
 from uplift_modeling.artifacts.json import save_json_artifact
 from uplift_modeling.data.row_id import align_frames_by_row_id
-from uplift_modeling.evaluation.bootstrap_config import DEFAULT_BASELINE_POLICY
+from uplift_modeling.evaluation.bootstrap import (
+    calculate_bootstrap_policy_metric_samples,
+)
+from uplift_modeling.evaluation.bootstrap_config import (
+    DEFAULT_BOOTSTRAP_RANDOM_SEED,
+    DEFAULT_N_BOOTSTRAP,
+)
+from uplift_modeling.evaluation.bootstrap_summary import (
+    summarize_bootstrap_policy_metric_samples,
+)
 from uplift_modeling.evaluation.topk_policy import (
     TOPK_BUDGET_FRACTIONS,
     calculate_topk_policy_metrics,
 )
 from uplift_modeling.evaluation.uplift_metrics import (
     PREDICTION_COLUMNS,
+    calculate_uplift_metrics,
     validate_prediction_frame,
 )
 
@@ -65,29 +75,17 @@ def resolve_required_prediction_paths(
     dataset_name: str,
     outcome: str,
     champion_policy: str,
-    baseline_policy: str = DEFAULT_BASELINE_POLICY,
 ) -> dict[str, Path]:
-    """Resolve locked-test prediction artifacts from manifest paths."""
-    policies = sorted({champion_policy, baseline_policy})
-    policy_paths: dict[str, Path] = {}
+    """Resolve the champion locked-test prediction artifact."""
+    prediction_path = manifest_prediction_paths.get(champion_policy)
+    if prediction_path is None:
+        raise ValueError(
+            "Champion prediction artifact is missing for policy "
+            f"'{champion_policy}', outcome '{outcome}', and dataset "
+            f"'{dataset_name}' in the experiment manifest."
+        )
 
-    for policy in policies:
-        prediction_path = manifest_prediction_paths.get(policy)
-        if prediction_path is None:
-            role = (
-                "Champion"
-                if policy == champion_policy
-                else "Baseline"
-            )
-            raise ValueError(
-                f"{role} prediction artifact is missing for policy '{policy}', "
-                f"outcome '{outcome}', and dataset '{dataset_name}' in the "
-                "experiment manifest."
-            )
-
-        policy_paths[policy] = prediction_path
-
-    return policy_paths
+    return {champion_policy: prediction_path}
 
 
 def load_locked_test_prediction_frames(
@@ -193,10 +191,13 @@ def save_locked_test_evaluation_artifact(
     dataset_name: str,
     outcome: str,
     champion_policy: str,
-    baseline_policy: str,
     selection_artifact_path: Path,
     prediction_paths: Mapping[str, Path],
+    uplift_metrics: Mapping[str, float | int],
     locked_test_rows: list[dict[str, Any]],
+    bootstrap_rows: list[dict[str, Any]],
+    n_bootstrap: int,
+    random_seed: int,
     budget_fractions: Iterable[float] = TOPK_BUDGET_FRACTIONS,
 ) -> tuple[Path, dict[str, Any]]:
     """Save the locked-test evaluation JSON artifact."""
@@ -215,14 +216,19 @@ def save_locked_test_evaluation_artifact(
         "outcome": outcome,
         "split": LOCKED_TEST_SPLIT,
         "champion_policy": champion_policy,
-        "baseline_policy": baseline_policy,
         "selection_artifact": selection_artifact_path.name,
         "prediction_artifacts": {
             policy: prediction_path.name
             for policy, prediction_path in sorted(prediction_paths.items())
         },
         "budget_fractions": [float(fraction) for fraction in budget_fractions],
+        "uplift_metrics": dict(uplift_metrics),
         "locked_test_rows": locked_test_rows,
+        "bootstrap": {
+            "n_bootstrap": int(n_bootstrap),
+            "random_seed": int(random_seed),
+            "rows": bootstrap_rows,
+        },
     }
 
     save_json_artifact(payload, output_path)
@@ -236,8 +242,9 @@ def save_locked_test_evaluation(
     dataset_name: str,
     outcome: str,
     selection_artifact_path: Path,
-    baseline_policy: str = DEFAULT_BASELINE_POLICY,
     budget_fractions: Iterable[float] = TOPK_BUDGET_FRACTIONS,
+    n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
+    random_seed: int = DEFAULT_BOOTSTRAP_RANDOM_SEED,
 ) -> tuple[Path, dict[str, Any]]:
     """Load fixed champion predictions and save locked-test reporting JSON."""
     selection_payload = load_selection_gate_payload(selection_artifact_path)
@@ -248,13 +255,25 @@ def save_locked_test_evaluation(
         dataset_name=dataset_name,
         outcome=outcome,
         champion_policy=champion_policy,
-        baseline_policy=baseline_policy,
     )
     policy_frames = load_locked_test_prediction_frames(prediction_paths)
+    champion_frame = policy_frames[champion_policy]
+    uplift_metrics = calculate_uplift_metrics(champion_frame)
     locked_test_rows = calculate_locked_test_rows(
         policy_frames=policy_frames,
         outcome=outcome,
         budget_fractions=fractions,
+    )
+    bootstrap_samples = calculate_bootstrap_policy_metric_samples(
+        policy_frames={champion_policy: champion_frame},
+        budget_fractions=fractions,
+        n_bootstrap=n_bootstrap,
+        random_seed=random_seed,
+    )
+    bootstrap_rows = summarize_bootstrap_policy_metric_samples(
+        samples=bootstrap_samples,
+        n_bootstrap=n_bootstrap,
+        random_seed=random_seed,
     )
 
     return save_locked_test_evaluation_artifact(
@@ -262,9 +281,12 @@ def save_locked_test_evaluation(
         dataset_name=dataset_name,
         outcome=outcome,
         champion_policy=champion_policy,
-        baseline_policy=baseline_policy,
         selection_artifact_path=selection_artifact_path,
         prediction_paths=prediction_paths,
+        uplift_metrics=uplift_metrics,
         locked_test_rows=locked_test_rows,
+        bootstrap_rows=bootstrap_rows,
+        n_bootstrap=n_bootstrap,
+        random_seed=random_seed,
         budget_fractions=fractions,
     )
