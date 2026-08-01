@@ -5,6 +5,39 @@ experiment manifest. They resolve prediction artifacts only from
 `prediction_artifacts`; they do not scan the prediction directory for the latest
 run.
 
+Create a manifest from the latest run-numbered prediction artifacts:
+
+```bash
+python -m uplift_modeling.pipelines.create_experiment_manifest \
+  --config configs/modeling/criteo_response_lgbm.yaml \
+  --outcome conversion
+```
+
+The default output path is:
+
+```text
+artifacts/metrics/criteo_conversion_experiment_manifest.json
+```
+
+Then pass that file to evaluation:
+
+```bash
+python -m uplift_modeling.pipelines.evaluate_criteo_predictions \
+  --config configs/modeling/criteo_response_lgbm.yaml \
+  --manifest artifacts/metrics/criteo_conversion_experiment_manifest.json \
+  --outcome conversion
+```
+
+Use the same manifest for locked-test reporting:
+
+```bash
+python -m uplift_modeling.pipelines.evaluate_locked_test \
+  --config configs/modeling/criteo_response_lgbm.yaml \
+  --selection-artifact artifacts/metrics/criteo_conversion_model_selection_gate_run01.json \
+  --manifest artifacts/metrics/criteo_conversion_experiment_manifest.json \
+  --outcome conversion
+```
+
 Required JSON fields:
 
 ```json

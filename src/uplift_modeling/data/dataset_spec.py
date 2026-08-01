@@ -44,7 +44,7 @@ def get_dataset_spec(dataset_name: str) -> DatasetSpec:
             f"Supported datasets: {supported}. Received: {dataset_name}"
         ) from error
 
-
+#check xem coi là cột outcome có nằm trong dataset spec hay không
 def validate_supported_outcome(
     dataset_spec: DatasetSpec,
     outcome_column: str,

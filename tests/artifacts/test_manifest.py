@@ -7,6 +7,7 @@ import pytest
 
 from uplift_modeling.artifacts.manifest import (
     build_experiment_manifest,
+    find_latest_prediction_artifacts,
     load_experiment_manifest,
     resolve_prediction_paths,
 )
@@ -181,3 +182,59 @@ def test_build_manifest_uses_repository_relative_prediction_paths(tmp_path) -> N
     assert manifest["prediction_artifacts"] == {
         "t_learner_lgbm": "artifacts/predictions.parquet",
     }
+
+
+def test_find_latest_prediction_artifacts_uses_latest_run_per_model(
+    tmp_path,
+) -> None:
+    """Manifest discovery selects latest run-numbered prediction files."""
+    prediction_dir = tmp_path / "predictions"
+    prediction_dir.mkdir()
+    latest_t_learner = (
+        prediction_dir
+        / "criteo_conversion_t_learner_lgbm_run03_predictions.parquet"
+    )
+    latest_pooled_response = (
+        prediction_dir
+        / "criteo_conversion_response_lgbm_run02_predictions.parquet"
+    )
+    for filename in (
+        "criteo_conversion_t_learner_lgbm_run01_predictions.parquet",
+        latest_t_learner.name,
+        "criteo_conversion_response_lgbm_run01_predictions.parquet",
+        latest_pooled_response.name,
+        "criteo_visit_t_learner_lgbm_run99_predictions.parquet",
+        "conversion_response_model_predictions.parquet",
+    ):
+        (prediction_dir / filename).touch()
+
+    artifacts = find_latest_prediction_artifacts(
+        prediction_dir=prediction_dir,
+        dataset_name="criteo",
+        outcome="conversion",
+    )
+
+    assert artifacts == {
+        "pooled_response_lgbm": latest_pooled_response,
+        "t_learner_lgbm": latest_t_learner,
+    }
+
+
+def test_find_latest_prediction_artifacts_rejects_missing_requested_model(
+    tmp_path,
+) -> None:
+    """Requested model names must exist after artifact discovery."""
+    prediction_dir = tmp_path / "predictions"
+    prediction_dir.mkdir()
+    (
+        prediction_dir
+        / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet"
+    ).touch()
+
+    with pytest.raises(FileNotFoundError, match="x_learner_lgbm"):
+        find_latest_prediction_artifacts(
+            prediction_dir=prediction_dir,
+            dataset_name="criteo",
+            outcome="conversion",
+            model_names=("t_learner_lgbm", "x_learner_lgbm"),
+        )

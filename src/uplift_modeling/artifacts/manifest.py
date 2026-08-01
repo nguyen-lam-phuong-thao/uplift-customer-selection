@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import glob
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,10 @@ from uplift_modeling.artifacts.json import save_json_artifact
 
 
 EXPERIMENT_MANIFEST_ARTIFACT_TYPE = "experiment_manifest"
+PREDICTION_ARTIFACT_SUFFIX = "_predictions.parquet"
+POLICY_NAME_BY_ARTIFACT_MODEL_NAME = {
+    "response_lgbm": "pooled_response_lgbm",
+}
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -88,6 +93,89 @@ def save_experiment_manifest(
         outcome=outcome,
     )
     return save_json_artifact(manifest, output_path)
+
+
+def find_latest_prediction_artifacts(
+    prediction_dir: Path,
+    dataset_name: str,
+    outcome: str,
+    model_names: tuple[str, ...] | None = None,
+) -> dict[str, Path]:
+    """Return the latest run-numbered prediction artifact for each model.
+
+    Only explicit run-numbered files produced by the training pipelines are
+    considered. Legacy unversioned files are intentionally ignored.
+    """
+    if not prediction_dir.exists():
+        raise FileNotFoundError(
+            f"Prediction artifact directory does not exist: {prediction_dir}"
+        )
+    if not prediction_dir.is_dir():
+        raise ValueError(
+            f"Prediction artifact path is not a directory: {prediction_dir}"
+        )
+
+    requested_models = set(model_names) if model_names is not None else None
+    pattern = re.compile(
+        rf"^{re.escape(dataset_name)}_{re.escape(outcome)}_"
+        rf"(?P<model_name>.+)_run(?P<run_number>\d+)"
+        rf"{re.escape(PREDICTION_ARTIFACT_SUFFIX)}$"
+    )
+    latest_by_model: dict[str, tuple[int, Path]] = {}
+
+    for prediction_path in prediction_dir.iterdir():
+        if not prediction_path.is_file():
+            continue
+
+        match = pattern.match(prediction_path.name)
+        if match is None:
+            continue
+
+        manifest_model_name = POLICY_NAME_BY_ARTIFACT_MODEL_NAME.get(
+            match.group("model_name"),
+            match.group("model_name"),
+        )
+        if (
+            requested_models is not None
+            and match.group("model_name") not in requested_models
+            and manifest_model_name not in requested_models
+        ):
+            continue
+
+        run_number = int(match.group("run_number"))
+        current = latest_by_model.get(manifest_model_name)
+        if current is None or run_number > current[0]:
+            latest_by_model[manifest_model_name] = (
+                run_number,
+                prediction_path,
+            )
+
+    if requested_models is not None:
+        requested_manifest_names = {
+            POLICY_NAME_BY_ARTIFACT_MODEL_NAME.get(model_name, model_name)
+            for model_name in requested_models
+        }
+        missing_models = sorted(
+            requested_manifest_names.difference(latest_by_model)
+        )
+        if missing_models:
+            missing_text = ", ".join(missing_models)
+            raise FileNotFoundError(
+                "No prediction artifact found for requested model(s): "
+                f"{missing_text}."
+            )
+
+    if not latest_by_model:
+        raise FileNotFoundError(
+            "No run-numbered prediction artifacts found for "
+            f"dataset '{dataset_name}' and outcome '{outcome}' in "
+            f"{prediction_dir}."
+        )
+
+    return {
+        model_name: path
+        for model_name, (_, path) in sorted(latest_by_model.items())
+    }
 
 
 def validate_experiment_manifest(
