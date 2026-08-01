@@ -8,11 +8,21 @@ import re
 from pathlib import Path
 from typing import Any
 
+import pyarrow.parquet as pq
+
 from uplift_modeling.artifacts.json import save_json_artifact
 
 
 EXPERIMENT_MANIFEST_ARTIFACT_TYPE = "experiment_manifest"
 PREDICTION_ARTIFACT_SUFFIX = "_predictions.parquet"
+REQUIRED_PREDICTION_COLUMNS = (
+    "row_id",
+    "treatment",
+    "outcome",
+    "split",
+    "score",
+    "model_name",
+)
 POLICY_NAME_BY_ARTIFACT_MODEL_NAME = {
     "response_lgbm": "pooled_response_lgbm",
 }
@@ -122,6 +132,7 @@ def find_latest_prediction_artifacts(
         rf"{re.escape(PREDICTION_ARTIFACT_SUFFIX)}$"
     )
     latest_by_model: dict[str, tuple[int, Path]] = {}
+    rejected_by_model: dict[str, list[str]] = {}
 
     for prediction_path in prediction_dir.iterdir():
         if not prediction_path.is_file():
@@ -142,6 +153,14 @@ def find_latest_prediction_artifacts(
         ):
             continue
 
+        missing_columns = get_missing_prediction_columns(prediction_path)
+        if missing_columns:
+            rejected_by_model.setdefault(manifest_model_name, []).append(
+                f"{prediction_path.name} missing columns: "
+                f"{', '.join(missing_columns)}"
+            )
+            continue
+
         run_number = int(match.group("run_number"))
         current = latest_by_model.get(manifest_model_name)
         if current is None or run_number > current[0]:
@@ -160,22 +179,54 @@ def find_latest_prediction_artifacts(
         )
         if missing_models:
             missing_text = ", ".join(missing_models)
+            rejection_text = _format_rejected_artifact_details(
+                rejected_by_model,
+                missing_models,
+            )
             raise FileNotFoundError(
-                "No prediction artifact found for requested model(s): "
-                f"{missing_text}."
+                "No schema-compatible prediction artifact found for "
+                f"requested model(s): {missing_text}.{rejection_text}"
             )
 
     if not latest_by_model:
+        rejection_text = _format_rejected_artifact_details(
+            rejected_by_model,
+            tuple(sorted(rejected_by_model)),
+        )
         raise FileNotFoundError(
-            "No run-numbered prediction artifacts found for "
+            "No schema-compatible run-numbered prediction artifacts found for "
             f"dataset '{dataset_name}' and outcome '{outcome}' in "
-            f"{prediction_dir}."
+            f"{prediction_dir}.{rejection_text}"
         )
 
     return {
         model_name: path
         for model_name, (_, path) in sorted(latest_by_model.items())
     }
+
+
+def get_missing_prediction_columns(prediction_path: Path) -> tuple[str, ...]:
+    """Return required prediction columns missing from a parquet artifact."""
+    schema_columns = set(pq.read_schema(prediction_path).names)
+    return tuple(
+        sorted(set(REQUIRED_PREDICTION_COLUMNS).difference(schema_columns))
+    )
+
+
+def _format_rejected_artifact_details(
+    rejected_by_model: dict[str, list[str]],
+    model_names: tuple[str, ...] | list[str],
+) -> str:
+    """Format rejected artifact details for clear manifest-creation errors."""
+    details = [
+        detail
+        for model_name in model_names
+        for detail in rejected_by_model.get(model_name, [])
+    ]
+    if not details:
+        return ""
+
+    return " Rejected artifact(s): " + "; ".join(details)
 
 
 def validate_experiment_manifest(

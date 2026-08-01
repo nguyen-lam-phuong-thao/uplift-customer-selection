@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pandas as pd
+
 from uplift_modeling.pipelines.create_experiment_manifest import (
     create_experiment_manifest,
 )
@@ -29,29 +31,43 @@ def _write_config(tmp_path: Path) -> Path:
     return config_path
 
 
+def _write_prediction_artifact(prediction_path: Path) -> None:
+    """Write an empty parquet prediction artifact with the current schema."""
+    pd.DataFrame(
+        {
+            "row_id": [],
+            "treatment": [],
+            "outcome": [],
+            "split": [],
+            "score": [],
+            "model_name": [],
+        }
+    ).to_parquet(prediction_path, index=False)
+
+
 def test_create_experiment_manifest_writes_latest_prediction_mapping(
     tmp_path,
 ) -> None:
     """Pipeline writes a manifest from latest prediction artifacts."""
     config_path = _write_config(tmp_path)
     prediction_dir = tmp_path / "predictions"
-    (
+    _write_prediction_artifact(
         prediction_dir
         / "criteo_conversion_response_lgbm_run01_predictions.parquet"
-    ).touch()
-    (
+    )
+    _write_prediction_artifact(
         prediction_dir
         / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet"
-    ).touch()
+    )
     latest_x_learner = (
         prediction_dir
         / "criteo_conversion_x_learner_lgbm_run02_predictions.parquet"
     )
-    latest_x_learner.touch()
-    (
+    _write_prediction_artifact(latest_x_learner)
+    _write_prediction_artifact(
         prediction_dir
         / "criteo_conversion_x_learner_lgbm_run01_predictions.parquet"
-    ).touch()
+    )
 
     output_path = create_experiment_manifest(
         config_path=config_path,

@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from uplift_modeling.artifacts.manifest import (
@@ -11,6 +12,25 @@ from uplift_modeling.artifacts.manifest import (
     load_experiment_manifest,
     resolve_prediction_paths,
 )
+
+
+def _write_prediction_artifact(
+    prediction_path: Path,
+    columns: tuple[str, ...] = (
+        "row_id",
+        "treatment",
+        "outcome",
+        "split",
+        "score",
+        "model_name",
+    ),
+) -> None:
+    """Write an empty parquet prediction artifact with the requested schema."""
+    prediction_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({column: [] for column in columns}).to_parquet(
+        prediction_path,
+        index=False,
+    )
 
 
 def _write_manifest(tmp_path: Path, payload: dict) -> Path:
@@ -203,10 +223,13 @@ def test_find_latest_prediction_artifacts_uses_latest_run_per_model(
         latest_t_learner.name,
         "criteo_conversion_response_lgbm_run01_predictions.parquet",
         latest_pooled_response.name,
-        "criteo_visit_t_learner_lgbm_run99_predictions.parquet",
-        "conversion_response_model_predictions.parquet",
     ):
-        (prediction_dir / filename).touch()
+        _write_prediction_artifact(prediction_dir / filename)
+    (
+        prediction_dir
+        / "criteo_visit_t_learner_lgbm_run99_predictions.parquet"
+    ).touch()
+    (prediction_dir / "conversion_response_model_predictions.parquet").touch()
 
     artifacts = find_latest_prediction_artifacts(
         prediction_dir=prediction_dir,
@@ -220,16 +243,45 @@ def test_find_latest_prediction_artifacts_uses_latest_run_per_model(
     }
 
 
+def test_find_latest_prediction_artifacts_skips_schema_incompatible_files(
+    tmp_path,
+) -> None:
+    """Manifest discovery ignores run artifacts missing row_id."""
+    prediction_dir = tmp_path / "predictions"
+    prediction_dir.mkdir()
+    invalid_latest = (
+        prediction_dir
+        / "criteo_conversion_t_learner_lgbm_run03_predictions.parquet"
+    )
+    valid_previous = (
+        prediction_dir
+        / "criteo_conversion_t_learner_lgbm_run02_predictions.parquet"
+    )
+    _write_prediction_artifact(
+        invalid_latest,
+        columns=("treatment", "outcome", "split", "score", "model_name"),
+    )
+    _write_prediction_artifact(valid_previous)
+
+    artifacts = find_latest_prediction_artifacts(
+        prediction_dir=prediction_dir,
+        dataset_name="criteo",
+        outcome="conversion",
+    )
+
+    assert artifacts == {"t_learner_lgbm": valid_previous}
+
+
 def test_find_latest_prediction_artifacts_rejects_missing_requested_model(
     tmp_path,
 ) -> None:
     """Requested model names must exist after artifact discovery."""
     prediction_dir = tmp_path / "predictions"
     prediction_dir.mkdir()
-    (
+    _write_prediction_artifact(
         prediction_dir
         / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet"
-    ).touch()
+    )
 
     with pytest.raises(FileNotFoundError, match="x_learner_lgbm"):
         find_latest_prediction_artifacts(
