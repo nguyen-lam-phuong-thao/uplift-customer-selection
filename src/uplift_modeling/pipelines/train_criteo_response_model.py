@@ -273,6 +273,25 @@ def get_split_frame(
     return split_frame
 
 
+def filter_training_and_validation_splits(
+    dataframe: pd.DataFrame,
+    split_column: str,
+    train_split: str,
+    validation_split: str,
+) -> pd.DataFrame:
+    """Return only train and validation rows after confirming both exist."""
+    split_values = set(dataframe[split_column].astype(str).unique())
+    required_splits = {train_split, validation_split}
+    missing_splits = sorted(required_splits.difference(split_values))
+    if missing_splits:
+        missing_text = ", ".join(missing_splits)
+        raise ValueError(f"Missing required split(s): {missing_text}.")
+
+    return dataframe.loc[
+        dataframe[split_column].isin(required_splits)
+    ].copy()
+
+
 def train_response_pipeline(config_path: Path, outcome: str) -> None:
     """Run the configured Criteo response-model training pipeline."""
     project_root = get_project_root(Path(__file__))
@@ -347,7 +366,12 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
         dataset_spec=dataset_spec,
         requested_outcome=outcome,
     )
-
+    dataframe = filter_training_and_validation_splits(
+        dataframe=dataframe,
+        split_column=split_column,
+        train_split=train_split,
+        validation_split=validation_split,
+    )
     dataframe = apply_debug_sample(
         dataframe=dataframe,
         sample_rows=debug_config["sample_rows"],

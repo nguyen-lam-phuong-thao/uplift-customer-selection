@@ -1,5 +1,6 @@
 """Tests for the Criteo response-model training schema boundary."""
 
+import importlib
 from pathlib import Path
 
 import pandas as pd
@@ -218,3 +219,117 @@ def test_training_frame_loads_columns_from_dataset_spec(tmp_path) -> None:
         "partition",
         "purchase",
     ]
+
+
+def _write_debug_sampling_config(
+    tmp_path: Path,
+    data_path: Path,
+    model_name: str,
+) -> Path:
+    """Write a minimal train/validation pipeline config."""
+    config_path = tmp_path / f"{model_name}.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "data:",
+                "  dataset_name: criteo",
+                "  processed_paths:",
+                f"    visit: {data_path}",
+                "training:",
+                "  train_split: train",
+                "  validation_split: validation",
+                "  prediction_batch_size: 2",
+                "  early_stopping_rounds: 1",
+                "  log_evaluation_period: 1",
+                "model:",
+                f"  name: {model_name}",
+                "  params:",
+                "    random_state: 42",
+                "outputs:",
+                f"  prediction_dir: {tmp_path / 'predictions'}",
+                f"  metric_dir: {tmp_path / 'metrics'}",
+                "  prediction_splits:",
+                "    - validation",
+                "tracking:",
+                "  log_predictions: false",
+                "debug:",
+                "  sample_rows: 2",
+                "  random_state: 42",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def _write_debug_sampling_data(tmp_path: Path) -> Path:
+    """Write train, validation, and test rows for debug-sampling tests."""
+    rows = []
+    for row_id, split in enumerate(["train", "validation", "test"]):
+        row = {
+            "row_id": row_id,
+            "treatment": row_id % 2,
+            "split": split,
+            "visit": row_id % 2,
+        }
+        row.update({f"f{index}": float(row_id + index) for index in range(12)})
+        rows.append(row)
+    data_path = tmp_path / "criteo_decision_visit.parquet"
+    pd.DataFrame(rows).to_parquet(data_path, index=False)
+    return data_path
+
+
+@pytest.mark.parametrize(
+    "module_name,function_name,model_name",
+    [
+        (
+            "uplift_modeling.pipelines.train_criteo_response_model",
+            "train_response_pipeline",
+            "treated_response_lgbm",
+        ),
+        (
+            "uplift_modeling.pipelines.train_criteo_t_learner",
+            "train_t_learner_pipeline",
+            "t_learner_lgbm",
+        ),
+        (
+            "uplift_modeling.pipelines.train_criteo_x_learner",
+            "train_x_learner_pipeline",
+            "x_learner_lgbm",
+        ),
+    ],
+)
+def test_debug_sample_receives_train_and_validation_only(
+    tmp_path,
+    monkeypatch,
+    module_name: str,
+    function_name: str,
+    model_name: str,
+) -> None:
+    """Debug sampling happens after test rows are removed."""
+    data_path = _write_debug_sampling_data(tmp_path)
+    config_path = _write_debug_sampling_config(
+        tmp_path,
+        data_path=data_path,
+        model_name=model_name,
+    )
+    pipeline_module = importlib.import_module(module_name)
+    observed_splits = set()
+
+    def capture_debug_sample(dataframe, sample_rows, random_state):
+        observed_splits.update(dataframe["split"].unique())
+        raise RuntimeError("stop after debug sample")
+
+    monkeypatch.setattr(
+        pipeline_module,
+        "apply_debug_sample",
+        capture_debug_sample,
+    )
+
+    with pytest.raises(RuntimeError, match="stop after debug sample"):
+        getattr(pipeline_module, function_name)(
+            config_path=config_path,
+            outcome="visit",
+        )
+
+    assert observed_splits == {"train", "validation"}

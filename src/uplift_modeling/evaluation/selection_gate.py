@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from uplift_modeling.artifacts.json import save_json_artifact
+from uplift_modeling.models.scoring import validate_model_artifact_identity
 
 
 LOGGER = logging.getLogger(__name__)
@@ -131,6 +132,7 @@ def save_model_selection_gate(
     dataset_name: str,
     experiment_id: str,
     settings: SelectionGateSettings,
+    source_manifest_path: Path,
     model_artifacts: Mapping[str, Any] | None = None,
     bootstrap_payload: Mapping[str, Any] | None = None,
     bootstrap_json_path: Path | None = None,
@@ -148,6 +150,10 @@ def save_model_selection_gate(
         settings=settings,
     )
     champion_policy = str(selection_result["champion_policy"])
+    if not isinstance(model_artifacts, Mapping):
+        raise ValueError(
+            "Model artifacts are required to save a Selection Gate artifact."
+        )
     champion_model_artifact = model_artifacts.get(champion_policy)
 
     if not isinstance(champion_model_artifact, Mapping):
@@ -155,10 +161,10 @@ def save_model_selection_gate(
             "Missing model provenance for selected champion"
             f" '{champion_policy}'."
         )
-    if champion_model_artifact.get("policy_name") != champion_policy:
-        raise ValueError(
-            "Selected champion policy does not match its model provenance."
-        )
+    validate_model_artifact_identity(
+        policy=champion_policy,
+        model_artifact=champion_model_artifact,
+    )
 
     output_path = metric_dir / (
         f"{dataset_name}_{settings.outcome}_{experiment_id}_"
@@ -173,6 +179,7 @@ def save_model_selection_gate(
         "artifact_type": MODEL_SELECTION_ARTIFACT_NAME,
         "experiment_id": experiment_id,
         "dataset_name": dataset_name,
+        "source_manifest_path": str(source_manifest_path.resolve()),
         "bootstrap_artifact": (
             bootstrap_json_path.name if bootstrap_json_path is not None else None
         ),

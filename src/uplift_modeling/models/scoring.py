@@ -30,6 +30,36 @@ def build_policy_score_batch(
     model_artifact: Mapping[str, Any],
 ) -> ScoreBatch:
     """Load one saved policy model and return its batch scoring function."""
+    model_kind = validate_model_artifact_identity(
+        policy=policy,
+        model_artifact=model_artifact,
+    )
+    if model_kind == RESPONSE_MODEL_KIND:
+        return _build_response_score_batch(policy, model_artifact)
+    if model_kind == T_LEARNER_MODEL_KIND:
+        return _build_t_learner_score_batch(policy, model_artifact)
+
+    return _build_x_learner_score_batch(policy, model_artifact)
+
+
+def validate_model_artifact_identity(
+    policy: str,
+    model_artifact: Mapping[str, Any],
+) -> str:
+    """Validate model provenance identity and return its supported model kind."""
+    artifact_type = model_artifact.get("artifact_type")
+    if artifact_type is not None and artifact_type != "model_provenance":
+        raise ValueError(
+            "Model artifact metadata for policy "
+            f"'{policy}' has unsupported artifact_type "
+            f"{artifact_type!r}."
+        )
+    policy_name = _require_string(model_artifact, "policy_name", policy)
+    if policy_name != policy:
+        raise ValueError(
+            "Model artifact metadata policy_name does not match selected "
+            f"policy '{policy}'. Received: '{policy_name}'."
+        )
     _require_string(model_artifact, "mlflow_run_id", policy)
     model_kind = _require_string(model_artifact, "model_kind", policy)
     if model_kind not in SUPPORTED_MODEL_KINDS:
@@ -40,11 +70,35 @@ def build_policy_score_batch(
         )
 
     if model_kind == RESPONSE_MODEL_KIND:
-        return _build_response_score_batch(policy, model_artifact)
+        _require_model_uri(model_artifact, "model_uri", policy)
     if model_kind == T_LEARNER_MODEL_KIND:
-        return _build_t_learner_score_batch(policy, model_artifact)
+        _require_model_uri(model_artifact, "treatment_model_uri", policy)
+        _require_model_uri(model_artifact, "control_model_uri", policy)
+    if model_kind == X_LEARNER_MODEL_KIND:
+        _require_model_uri(
+            model_artifact,
+            "treatment_effect_model_uri",
+            policy,
+        )
+        _require_model_uri(
+            model_artifact,
+            "control_effect_model_uri",
+            policy,
+        )
+        constant_treatment_rate_weight = _require_float(
+            model_artifact,
+            "constant_treatment_rate_weight",
+            policy,
+        )
+        if not 0.0 <= constant_treatment_rate_weight <= 1.0:
+            raise ValueError(
+                "Model artifact metadata for policy "
+                f"'{policy}' must contain "
+                "'constant_treatment_rate_weight' between 0 and 1. "
+                f"Received: {constant_treatment_rate_weight}."
+            )
 
-    return _build_x_learner_score_batch(policy, model_artifact)
+    return model_kind
 
 
 def _build_response_score_batch(

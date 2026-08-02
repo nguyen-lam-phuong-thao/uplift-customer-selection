@@ -1,6 +1,7 @@
 """Run locked test-set scoring and reporting for a fixed champion policy."""
 
 import argparse
+import json
 import logging
 from collections.abc import Mapping
 from pathlib import Path
@@ -17,10 +18,6 @@ from uplift_modeling.artifacts.model_provenance import (
     get_model_provenance_path,
     save_model_provenance_payload,
 )
-from uplift_modeling.artifacts.naming import (
-    build_artifact_filename,
-    find_next_run_number,
-)
 from uplift_modeling.artifacts.predictions import save_prediction_parquet_in_batches
 from uplift_modeling.data.dataset_spec import (
     DatasetSpec,
@@ -32,9 +29,12 @@ from uplift_modeling.evaluation.bootstrap_config import (
     DEFAULT_N_BOOTSTRAP,
 )
 from uplift_modeling.evaluation.locked_test import (
-    get_champion_policy,
+    build_locked_test_evaluation_path,
+    build_locked_test_prediction_path,
     load_selection_gate_payload,
+    load_existing_locked_test_evaluation,
     save_locked_test_evaluation,
+    validate_selection_gate_payload,
 )
 from uplift_modeling.models.scoring import build_policy_score_batch
 from uplift_modeling.pipelines.train_criteo_response_model import (
@@ -127,6 +127,19 @@ def get_experiment_name(config: dict[str, Any]) -> str:
     return str(project_config.get("experiment_name", "criteo-uplift-modeling"))
 
 
+def validate_selection_source_manifest(
+    selection_payload: Mapping[str, Any],
+    manifest_path: Path,
+) -> None:
+    """Validate Selection Gate artifact was built from the supplied manifest."""
+    source_manifest_path = str(selection_payload["source_manifest_path"])
+    if Path(source_manifest_path).resolve() != manifest_path.resolve():
+        raise ValueError(
+            "Selection artifact does not reference the supplied experiment "
+            "manifest."
+        )
+
+
 def load_locked_test_source_frame(
     parquet_path: Path,
     dataset_spec: DatasetSpec,
@@ -163,6 +176,7 @@ def save_locked_test_predictions(
     target_column: str,
     dataset_name: str,
     outcome: str,
+    experiment_id: str,
     model_artifacts: Mapping[str, Mapping[str, Any]],
     prediction_dir: Path,
     batch_size: int,
@@ -172,23 +186,21 @@ def save_locked_test_predictions(
     prediction_dir.mkdir(parents=True, exist_ok=True)
 
     for policy_name in sorted(model_artifacts):
+        prediction_path = build_locked_test_prediction_path(
+            prediction_dir=prediction_dir,
+            dataset_name=dataset_name,
+            outcome=outcome,
+            champion_policy=policy_name,
+            experiment_id=experiment_id,
+        )
+        if prediction_path.exists():
+            raise ValueError(
+                "Incomplete Final Evaluation state: prediction exists "
+                "without final report."
+            )
         score_batch = build_policy_score_batch(
             policy=policy_name,
             model_artifact=model_artifacts[policy_name],
-        )
-        run_number = find_next_run_number(
-            artifact_dirs=(prediction_dir,),
-            db_name=dataset_name,
-            outcome=outcome,
-            model_name=policy_name,
-        )
-        prediction_path = prediction_dir / build_artifact_filename(
-            db_name=dataset_name,
-            outcome=outcome,
-            model_name=policy_name,
-            run_number=run_number,
-            artifact_name="locked_test_predictions",
-            extension="parquet",
         )
 
         LOGGER.info(
@@ -248,30 +260,22 @@ def evaluate_locked_test(
     validate_supported_outcome(dataset_spec, outcome)
 
     selection_payload = load_selection_gate_payload(selection_artifact_path)
-    champion_policy = get_champion_policy(selection_payload)
-    required_policies = (champion_policy,)
-
-    champion_model_artifact = selection_payload.get(
-        "champion_model_artifact"
+    champion_policy = validate_selection_gate_payload(
+        selection_payload=selection_payload,
+        outcome=outcome,
     )
-
-    if not isinstance(champion_model_artifact, dict):
-        raise ValueError(
-            "Selection Gate artifact must contain "
-            "'champion_model_artifact'."
-        )
-
-    if champion_model_artifact.get("policy_name") != champion_policy:
-        raise ValueError(
-            "Selection Gate champion_policy does not match "
-            "champion_model_artifact."
-        )
+    required_policies = (champion_policy,)
+    champion_model_artifact = selection_payload["champion_model_artifact"]
 
     model_artifacts = {
         champion_policy: champion_model_artifact,
     }
 
     manifest = load_experiment_manifest(manifest_path)
+    validate_selection_source_manifest(
+        selection_payload=selection_payload,
+        manifest_path=manifest_path,
+    )
 
     manifest_config_value = manifest.get("config_path")
 
@@ -300,9 +304,7 @@ def evaluate_locked_test(
             f"manifest config: {manifest_config_path}."
         )
 
-    selection_experiment_id = selection_payload.get(
-            "experiment_id"
-    )
+    selection_experiment_id = selection_payload.get("experiment_id")
     manifest_experiment_id = manifest.get("experiment_id")
 
     if (
@@ -339,27 +341,13 @@ def evaluate_locked_test(
             f"config: {dataset_name!r}."
         )
 
-    selection_settings = selection_payload.get(
-        "selection_settings"
-    )
-    if not isinstance(selection_settings, Mapping):
-        raise ValueError(
-            "Selection Gate artifact must contain "
-            "'selection_settings' as an object."
-        )
-
-    selection_outcome = selection_settings.get("outcome")
     manifest_outcome = manifest.get("outcome")
 
-    if (
-        selection_outcome != manifest_outcome
-        or selection_outcome != outcome
-    ):
+    if manifest_outcome != outcome:
         raise ValueError(
-            "Selection Gate artifact, experiment manifest, and "
-            "Locked Test request must have the same outcome. "
-            f"Selection: {selection_outcome!r}; "
-            f"manifest: {manifest_outcome!r}; "
+            "Experiment manifest and Locked Test request must have "
+            "the same outcome. "
+            f"Manifest: {manifest_outcome!r}; "
             f"requested: {outcome!r}."
         )
 
@@ -391,6 +379,44 @@ def evaluate_locked_test(
         model_artifacts=model_artifacts,
         prediction_paths=validation_prediction_paths,
     )
+    test_split = get_locked_test_split(config)
+    metric_dir = resolve_project_path(output_config["metric_dir"], project_root)
+    prediction_dir = resolve_project_path(
+        output_config["prediction_dir"],
+        project_root,
+    )
+    final_evaluation_path = build_locked_test_evaluation_path(
+        metric_dir=metric_dir,
+        dataset_name=dataset_name,
+        outcome=outcome,
+        experiment_id=selection_experiment_id,
+    )
+    if final_evaluation_path.exists():
+        output_path, payload = load_existing_locked_test_evaluation(
+            output_path=final_evaluation_path,
+            experiment_id=selection_experiment_id,
+            champion_policy=champion_policy,
+            champion_model_artifact=champion_model_artifact,
+        )
+        LOGGER.info("Reusing locked-test evaluation JSON: %s", output_path)
+        LOGGER.info(
+            "Locked-test evaluation result:\n%s",
+            json.dumps(payload, indent=2, sort_keys=True),
+        )
+        return output_path
+
+    deterministic_prediction_path = build_locked_test_prediction_path(
+        prediction_dir=prediction_dir,
+        dataset_name=dataset_name,
+        outcome=outcome,
+        champion_policy=champion_policy,
+        experiment_id=selection_experiment_id,
+    )
+    if deterministic_prediction_path.exists():
+        raise ValueError(
+            "Incomplete Final Evaluation state: prediction exists "
+            "without final report."
+        )
 
     processed_data_path = get_processed_data_path(
         data_config=data_config,
@@ -401,7 +427,7 @@ def evaluate_locked_test(
         parquet_path=processed_data_path,
         dataset_spec=dataset_spec,
         outcome=outcome,
-        test_split=get_locked_test_split(config),
+        test_split=test_split,
     )
 
     setup_mlflow(get_experiment_name(config))
@@ -411,17 +437,15 @@ def evaluate_locked_test(
         target_column=target_column,
         dataset_name=dataset_name,
         outcome=outcome,
+        experiment_id=selection_experiment_id,
         model_artifacts=model_artifacts,
-        prediction_dir=resolve_project_path(
-            output_config["prediction_dir"],
-            project_root,
-        ),
+        prediction_dir=prediction_dir,
         batch_size=int(training_config["prediction_batch_size"]),
     )
 
     output_path, _ = save_locked_test_evaluation(
         manifest_prediction_paths=locked_test_prediction_paths,
-        metric_dir=resolve_project_path(output_config["metric_dir"], project_root),
+        metric_dir=metric_dir,
         dataset_name=dataset_name,
         outcome=outcome,
         selection_artifact_path=selection_artifact_path,

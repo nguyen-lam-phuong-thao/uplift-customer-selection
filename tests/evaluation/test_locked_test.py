@@ -75,9 +75,36 @@ def _write_selection_artifact(tmp_path: Path, champion_policy: str) -> Path:
         json.dumps(
             {
                 "artifact_type": "model_selection_gate",
+                "experiment_id": "exp-001",
                 "dataset_name": "criteo",
-                "outcome": "visit",
+                "source_manifest_path": str(
+                    (tmp_path / "experiment_manifest.json").resolve()
+                ),
                 "champion_policy": champion_policy,
+                "selection_settings": {
+                    "outcome": "visit",
+                    "split": "validation",
+                    "budget_fraction": 0.1,
+                    "metric": "policy_value",
+                    "baseline_policy": "treated_response_lgbm",
+                },
+                "champion_model_artifact": {
+                    "artifact_type": "model_provenance",
+                    "dataset_name": "criteo",
+                    "outcome": "visit",
+                    "policy_name": champion_policy,
+                    "prediction_artifact": (
+                        f"criteo_visit_{champion_policy}_run01_predictions.parquet"
+                    ),
+                    "model_kind": "t_learner",
+                    "mlflow_run_id": f"run-{champion_policy}",
+                    "treatment_model_uri": (
+                        f"runs:/run-{champion_policy}/treatment_model"
+                    ),
+                    "control_model_uri": (
+                        f"runs:/run-{champion_policy}/control_model"
+                    ),
+                },
             }
         ),
         encoding="utf-8",
@@ -138,9 +165,27 @@ def test_locked_test_evaluates_only_champion(tmp_path) -> None:
 
     assert output_path.exists()
     assert output_path.name == (
-        "criteo_visit_locked_test_evaluation_run01.json"
+        "criteo_visit_exp-001_locked_test_evaluation.json"
     )
+    assert payload["experiment_id"] == "exp-001"
     assert payload["champion_policy"] == "t_learner_lgbm"
+    assert payload["champion_model_artifact"] == {
+        "artifact_type": "model_provenance",
+        "dataset_name": "criteo",
+        "outcome": "visit",
+        "policy_name": "t_learner_lgbm",
+        "prediction_artifact": (
+            "criteo_visit_t_learner_lgbm_run01_predictions.parquet"
+        ),
+        "model_kind": "t_learner",
+        "mlflow_run_id": "run-t_learner_lgbm",
+        "treatment_model_uri": (
+            "runs:/run-t_learner_lgbm/treatment_model"
+        ),
+        "control_model_uri": (
+            "runs:/run-t_learner_lgbm/control_model"
+        ),
+    }
     assert "baseline_policy" not in payload
     assert set(payload["prediction_artifacts"]) == {
         "t_learner_lgbm"

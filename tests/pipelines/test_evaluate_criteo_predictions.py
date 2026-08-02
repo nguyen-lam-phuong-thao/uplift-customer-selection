@@ -38,7 +38,10 @@ def _write_manifest(tmp_path: Path, outcome: str = "visit") -> Path:
         tmp_path
         / f"criteo_{outcome}_t_learner_lgbm_run01_predictions.parquet"
     )
-    prediction_path.touch()
+    _prediction_frame("t_learner_lgbm").to_parquet(
+        prediction_path,
+        index=False,
+    )
     manifest_path = tmp_path / "experiment_manifest.json"
     manifest_path.write_text(
         json.dumps(

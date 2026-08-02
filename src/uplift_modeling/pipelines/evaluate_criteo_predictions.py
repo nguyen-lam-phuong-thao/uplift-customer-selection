@@ -477,6 +477,7 @@ def evaluate_predictions(
                 config,
                 outcome=outcome,
             ),
+            source_manifest_path=manifest_path,
             model_artifacts=model_artifacts,
             bootstrap_payload=selection_payload,
             bootstrap_json_path=bootstrap_contrast_path,

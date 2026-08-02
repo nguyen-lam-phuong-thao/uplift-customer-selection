@@ -110,6 +110,33 @@ def _validate_paired_split_frames(
     return aligned_frames, unique_row_counts.pop()
 
 
+def _calculate_bootstrap_metrics_or_none(
+    sampled_frame: pd.DataFrame,
+    budget_fraction: float,
+) -> dict[str, float | int | None]:
+    """Return Top-K metrics, or null metrics for invalid bootstrap samples."""
+    try:
+        return calculate_topk_policy_metrics(
+            sampled_frame,
+            budget_fraction=budget_fraction,
+            require_unique_row_id=False,
+        )
+    except ValueError as error:
+        message = str(error)
+        invalid_sample_messages = (
+            "Prediction frame must contain both treatment and control rows.",
+            "treatment rate must be strictly between 0 and 1.",
+            "Selected rows must contain both treatment and control rows.",
+        )
+        if not any(text in message for text in invalid_sample_messages):
+            raise
+        return {
+            "n_selected": None,
+            "policy_value": None,
+            "incremental_outcome": None,
+        }
+
+
 def calculate_bootstrap_policy_metric_samples(
     policy_frames: dict[str, pd.DataFrame],
     budget_fractions: Iterable[float] = TOPK_BUDGET_FRACTIONS,
@@ -159,10 +186,9 @@ def calculate_bootstrap_policy_metric_samples(
                     drop=True
                 )
                 for budget_fraction in fractions:
-                    metrics = calculate_topk_policy_metrics(
+                    metrics = _calculate_bootstrap_metrics_or_none(
                         sampled_frame,
                         budget_fraction=budget_fraction,
-                        require_unique_row_id=False,
                     )
                     rows.append(
                         {
@@ -171,7 +197,7 @@ def calculate_bootstrap_policy_metric_samples(
                             "split": split,
                             "budget_fraction": float(budget_fraction),
                             "budget_pct": float(budget_fraction * 100),
-                            "n_selected": int(metrics["n_selected"]),
+                            "n_selected": metrics["n_selected"],
                             "policy_value": metrics["policy_value"],
                             "incremental_outcome": metrics[
                                 "incremental_outcome"

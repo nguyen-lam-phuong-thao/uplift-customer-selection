@@ -184,6 +184,16 @@ def find_latest_prediction_artifacts(
                 f"{prediction_path.name} contains test split rows"
             )
             continue
+        try:
+            validate_prediction_artifact_model_name(
+                prediction_path=prediction_path,
+                manifest_policy=manifest_model_name,
+            )
+        except ValueError as error:
+            rejected_by_model.setdefault(manifest_model_name, []).append(
+                f"{prediction_path.name} has invalid model_name: {error}"
+            )
+            continue
 
         run_number = int(match.group("run_number"))
         current = latest_by_model.get(manifest_model_name)
@@ -260,10 +270,7 @@ def validate_experiment_manifest(
 ) -> dict[str, str]:
     """Validate the manifest contract and return raw prediction references."""
     artifact_type = manifest.get("artifact_type")
-    if (
-        artifact_type is not None
-        and artifact_type != EXPERIMENT_MANIFEST_ARTIFACT_TYPE
-    ):
+    if artifact_type != EXPERIMENT_MANIFEST_ARTIFACT_TYPE:
         raise ValueError(
             "Experiment manifest artifact_type must be "
             f"'{EXPERIMENT_MANIFEST_ARTIFACT_TYPE}'. "
@@ -376,10 +383,54 @@ def resolve_prediction_paths(
                 "Experiment manifest prediction artifact must be a file for "
                 f"policy/model '{policy_name}': {prediction_path}"
             )
+        validate_prediction_artifact_model_name(
+            prediction_path=prediction_path,
+            manifest_policy=policy_name,
+        )
 
         resolved_paths[policy_name] = prediction_path
 
     return resolved_paths
+
+
+def validate_prediction_artifact_model_name(
+    prediction_path: Path,
+    manifest_policy: str,
+) -> None:
+    """Validate one prediction artifact declares the manifest policy identity."""
+    schema_columns = set(pq.read_schema(prediction_path).names)
+    if "model_name" not in schema_columns:
+        raise ValueError(
+            f"Prediction artifact {prediction_path} is missing required "
+            "'model_name' column."
+        )
+
+    model_name_values = (
+        pq.read_table(prediction_path, columns=["model_name"])
+        .column("model_name")
+        .to_pylist()
+    )
+    model_names = [
+        value.strip()
+        for value in model_name_values
+        if isinstance(value, str) and value.strip()
+    ]
+    invalid_count = len(model_name_values) - len(model_names)
+    unique_model_names = sorted(set(model_names))
+
+    if invalid_count or len(unique_model_names) != 1:
+        raise ValueError(
+            "Prediction artifact model_name must contain exactly one "
+            f"non-null non-empty value for manifest policy "
+            f"'{manifest_policy}'. Received: {unique_model_names}."
+        )
+
+    model_name = unique_model_names[0]
+    if model_name != manifest_policy:
+        raise ValueError(
+            f"Prediction artifact model_name '{model_name}' does not match "
+            f"manifest policy '{manifest_policy}'."
+        )
 
 
 def resolve_model_artifacts(

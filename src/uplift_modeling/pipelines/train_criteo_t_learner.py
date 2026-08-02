@@ -28,6 +28,7 @@ from uplift_modeling.models.t_learner import (
 )
 from uplift_modeling.pipelines.train_criteo_response_model import (
     apply_debug_sample,
+    filter_training_and_validation_splits,
     get_debug_config,
     get_prediction_splits,
     get_processed_data_path,
@@ -143,6 +144,12 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> None:
         parquet_path=data_path,
         dataset_spec=dataset_spec,
         requested_outcome=outcome,
+    )
+    dataframe = filter_training_and_validation_splits(
+        dataframe=dataframe,
+        split_column=split_column,
+        train_split=train_split,
+        validation_split=validation_split,
     )
     dataframe = apply_debug_sample(
         dataframe=dataframe,

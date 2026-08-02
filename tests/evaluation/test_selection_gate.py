@@ -180,8 +180,8 @@ def test_save_model_selection_gate_writes_json_artifact(tmp_path) -> None:
             ),
             "model_kind": "x_learner",
             "mlflow_run_id": "x-run-01",
-            "tau0_model_uri": "runs:/x-run-01/tau0_model",
-            "tau1_model_uri": "runs:/x-run-01/tau1_model",
+            "control_effect_model_uri": "runs:/x-run-01/tau0_model",
+            "treatment_effect_model_uri": "runs:/x-run-01/tau1_model",
             "constant_treatment_rate_weight": 0.5,
         }
     }
@@ -191,6 +191,7 @@ def test_save_model_selection_gate_writes_json_artifact(tmp_path) -> None:
         dataset_name="criteo",
         settings=SETTINGS,
         experiment_id="exp-001",
+        source_manifest_path=tmp_path / "experiment_manifest.json",
         model_artifacts=model_artifacts,
         bootstrap_json_path=bootstrap_path,
     )
@@ -203,8 +204,11 @@ def test_save_model_selection_gate_writes_json_artifact(tmp_path) -> None:
         == "x-run-01"
     )
     assert (
-        payload["champion_model_artifact"]["tau0_model_uri"]
+        payload["champion_model_artifact"]["control_effect_model_uri"]
         == "runs:/x-run-01/tau0_model"
+    )
+    assert payload["source_manifest_path"] == str(
+        (tmp_path / "experiment_manifest.json").resolve()
     )
 
 def test_save_model_selection_gate_does_not_overwrite_experiment(
@@ -229,8 +233,8 @@ def test_save_model_selection_gate_does_not_overwrite_experiment(
             "prediction_artifact": "x_predictions.parquet",
             "model_kind": "x_learner",
             "mlflow_run_id": "x-run-01",
-            "tau0_model_uri": "runs:/x-run-01/tau0_model",
-            "tau1_model_uri": "runs:/x-run-01/tau1_model",
+            "control_effect_model_uri": "runs:/x-run-01/tau0_model",
+            "treatment_effect_model_uri": "runs:/x-run-01/tau1_model",
             "constant_treatment_rate_weight": 0.5,
         }
     }
@@ -240,6 +244,7 @@ def test_save_model_selection_gate_does_not_overwrite_experiment(
         dataset_name="criteo",
         experiment_id="exp-001",
         settings=SETTINGS,
+        source_manifest_path=tmp_path / "experiment_manifest.json",
         model_artifacts=model_artifacts,
         bootstrap_json_path=bootstrap_path,
     )
@@ -250,9 +255,10 @@ def test_save_model_selection_gate_does_not_overwrite_experiment(
     ):
         save_model_selection_gate(
             metric_dir=tmp_path,
-            dataset_name="criteo",
-            experiment_id="exp-001",
-            settings=SETTINGS,
-            model_artifacts=model_artifacts,
-            bootstrap_json_path=bootstrap_path,
-        )    
+                dataset_name="criteo",
+                experiment_id="exp-001",
+                settings=SETTINGS,
+                source_manifest_path=tmp_path / "experiment_manifest.json",
+                model_artifacts=model_artifacts,
+                bootstrap_json_path=bootstrap_path,
+            )

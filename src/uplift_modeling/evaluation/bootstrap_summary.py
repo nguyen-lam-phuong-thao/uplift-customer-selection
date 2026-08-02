@@ -39,28 +39,38 @@ def _summarize_values(
 ) -> dict[str, float | int | None]:
     array = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
     finite_values = array[np.isfinite(array)]
+    n_valid_bootstrap = int(len(finite_values))
 
-    if len(finite_values) == 0:
+    if n_valid_bootstrap == 0:
         return {
             "mean": None,
             "std": None,
             "ci_lower": None,
             "ci_upper": None,
             "n_bootstrap": int(n_bootstrap),
+            "n_valid_bootstrap": 0,
             "random_seed": int(random_seed),
         }
 
-    std = (
-        float(np.std(finite_values, ddof=1))
-        if len(finite_values) > 1
-        else None
-    )
+    if n_valid_bootstrap == 1:
+        value = float(finite_values[0])
+        return {
+            "mean": value,
+            "std": None,
+            "ci_lower": value,
+            "ci_upper": value,
+            "n_bootstrap": int(n_bootstrap),
+            "n_valid_bootstrap": 1,
+            "random_seed": int(random_seed),
+        }
+
     return {
         "mean": float(np.mean(finite_values)),
-        "std": std,
+        "std": float(np.std(finite_values, ddof=1)),
         "ci_lower": _summary_value(np.percentile(finite_values, 2.5)),
         "ci_upper": _summary_value(np.percentile(finite_values, 97.5)),
         "n_bootstrap": int(n_bootstrap),
+        "n_valid_bootstrap": n_valid_bootstrap,
         "random_seed": int(random_seed),
     }
 
@@ -179,6 +189,7 @@ def summarize_bootstrap_paired_contrasts(
                         "ci_lower": summary["ci_lower"],
                         "ci_upper": summary["ci_upper"],
                         "n_bootstrap": int(n_bootstrap),
+                        "n_valid_bootstrap": summary["n_valid_bootstrap"],
                         "random_seed": int(random_seed),
                     }
                 )

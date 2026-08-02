@@ -17,6 +17,8 @@ from uplift_modeling.evaluation.bootstrap import (
 )
 from uplift_modeling.evaluation.bootstrap_summary import (
     calculate_bootstrap_policy_rows as calculate_bootstrap_policy_rows_new,
+    summarize_bootstrap_paired_contrasts,
+    summarize_bootstrap_policy_metric_samples,
 )
 from uplift_modeling.evaluation.bootstrap_writer import (
     save_bootstrap_policy_evaluation as save_bootstrap_policy_evaluation_new,
@@ -174,6 +176,7 @@ def test_bootstrap_output_has_expected_columns_and_valid_ci() -> None:
         "ci_lower",
         "ci_upper",
         "n_bootstrap",
+        "n_valid_bootstrap",
         "random_seed",
     }
     required_contrast_columns = {
@@ -188,6 +191,7 @@ def test_bootstrap_output_has_expected_columns_and_valid_ci() -> None:
         "ci_lower",
         "ci_upper",
         "n_bootstrap",
+        "n_valid_bootstrap",
         "random_seed",
     }
 
@@ -196,6 +200,10 @@ def test_bootstrap_output_has_expected_columns_and_valid_ci() -> None:
     assert {row["split"] for row in contrast_rows} == {"validation"}
     assert required_policy_columns.issubset(policy_rows[0])
     assert required_contrast_columns.issubset(contrast_rows[0])
+    assert all(
+        0 <= row["n_valid_bootstrap"] <= row["n_bootstrap"]
+        for row in [*policy_rows, *contrast_rows]
+    )
     assert all(
         row["ci_lower"] <= row["ci_upper"]
         for row in [*policy_rows, *contrast_rows]
@@ -221,6 +229,119 @@ def test_bootstrap_results_are_deterministic_with_fixed_seed() -> None:
     assert first == second
 
 
+def test_bootstrap_summary_counts_only_valid_samples() -> None:
+    """Finite bootstrap samples define n_valid_bootstrap."""
+    samples = pd.DataFrame(
+        {
+            "policy": ["policy"] * 3,
+            "split": ["validation"] * 3,
+            "budget_fraction": [1.0] * 3,
+            "budget_pct": [100.0] * 3,
+            "policy_value": [1.0, np.nan, 3.0],
+            "incremental_outcome": [2.0, None, 4.0],
+        }
+    )
+
+    rows = summarize_bootstrap_policy_metric_samples(
+        samples=samples,
+        n_bootstrap=3,
+        random_seed=42,
+    )
+
+    assert {row["n_valid_bootstrap"] for row in rows} == {2}
+    assert {row["n_bootstrap"] for row in rows} == {3}
+
+
+def test_bootstrap_summary_uses_single_value_for_one_valid_sample() -> None:
+    """One valid bootstrap sample keeps mean and uses it for both CI bounds."""
+    samples = pd.DataFrame(
+        {
+            "policy": ["policy"] * 3,
+            "split": ["validation"] * 3,
+            "budget_fraction": [1.0] * 3,
+            "budget_pct": [100.0] * 3,
+            "policy_value": [None, 4.0, np.nan],
+            "incremental_outcome": [None, 2.0, np.nan],
+        }
+    )
+
+    rows = summarize_bootstrap_policy_metric_samples(
+        samples=samples,
+        n_bootstrap=3,
+        random_seed=42,
+    )
+
+    assert {row["n_valid_bootstrap"] for row in rows} == {1}
+    assert all(row["std"] is None for row in rows)
+    assert all(row["mean"] == row["ci_lower"] == row["ci_upper"] for row in rows)
+
+
+def test_bootstrap_summary_returns_nulls_when_no_valid_samples_remain() -> None:
+    """A metric with zero finite bootstrap samples returns a null summary."""
+    samples = pd.DataFrame(
+        {
+            "policy": ["policy"] * 2,
+            "split": ["validation"] * 2,
+            "budget_fraction": [1.0] * 2,
+            "budget_pct": [100.0] * 2,
+            "policy_value": [np.nan, None],
+            "incremental_outcome": [np.nan, None],
+        }
+    )
+
+    rows = summarize_bootstrap_policy_metric_samples(
+        samples=samples,
+        n_bootstrap=2,
+        random_seed=42,
+    )
+
+    assert rows
+    for row in rows:
+        assert row["n_bootstrap"] == 2
+        assert row["n_valid_bootstrap"] == 0
+        assert row["mean"] is None
+        assert row["std"] is None
+        assert row["ci_lower"] is None
+        assert row["ci_upper"] is None
+
+
+def test_paired_contrast_summary_returns_nulls_when_no_valid_samples_remain() -> None:
+    """Paired contrast metrics with zero finite deltas return null summaries."""
+    samples = pd.DataFrame(
+        {
+            "bootstrap_iteration": [0, 0, 1, 1],
+            "policy": [
+                "treated_response_lgbm",
+                "t_learner_lgbm",
+                "treated_response_lgbm",
+                "t_learner_lgbm",
+            ],
+            "split": ["validation"] * 4,
+            "budget_fraction": [1.0] * 4,
+            "budget_pct": [100.0] * 4,
+            "policy_value": [np.nan, np.nan, None, None],
+            "incremental_outcome": [np.nan, np.nan, None, None],
+        }
+    )
+
+    rows, warnings = summarize_bootstrap_paired_contrasts(
+        samples=samples,
+        baseline_policy="treated_response_lgbm",
+        n_bootstrap=2,
+        random_seed=42,
+    )
+
+    assert warnings == []
+    assert rows
+    for row in rows:
+        assert row["n_bootstrap"] == 2
+        assert row["n_valid_bootstrap"] == 0
+        assert row["mean_delta"] is None
+        assert row["std_delta"] is None
+        assert row["ci_lower"] is None
+        assert row["ci_upper"] is None
+
+
 def test_bootstrap_calculation_can_be_restricted_to_validation_split() -> None:
     """Bootstrap summaries can evaluate only the requested split."""
     policy_rows, contrast_rows, warnings = calculate_bootstrap_policy_rows(
@@ -240,14 +361,14 @@ def test_bootstrap_calculation_can_be_restricted_to_one_budget() -> None:
     """Bootstrap summaries can evaluate only the requested budget."""
     policy_rows, contrast_rows, warnings = calculate_bootstrap_policy_rows(
         _policy_frames(),
-        budget_fractions=(0.05,),
+        budget_fractions=(0.5,),
         n_bootstrap=4,
         random_seed=42,
     )
 
     assert warnings == []
-    assert {row["budget_fraction"] for row in policy_rows} == {0.05}
-    assert {row["budget_fraction"] for row in contrast_rows} == {0.05}
+    assert {row["budget_fraction"] for row in policy_rows} == {0.5}
+    assert {row["budget_fraction"] for row in contrast_rows} == {0.5}
 
 
 def test_restricted_bootstrap_artifact_records_evaluated_splits_and_budgets(
@@ -261,7 +382,7 @@ def test_restricted_bootstrap_artifact_records_evaluated_splits_and_budgets(
         outcome="visit",
         random_seed=42,
         n_bootstrap=3,
-        budget_fractions=(0.05,),
+        budget_fractions=(0.5,),
         bootstrap_splits=("validation",),
     )
 
@@ -269,13 +390,13 @@ def test_restricted_bootstrap_artifact_records_evaluated_splits_and_budgets(
     contrast_rows = payload["paired_contrast_rows"]
 
     assert payload["evaluated_splits"] == ["validation"]
-    assert payload["budget_fractions"] == [0.05]
+    assert payload["budget_fractions"] == [0.5]
     assert payload["random_seed"] == 42
     assert payload["n_bootstrap"] == 3
     assert {row["split"] for row in policy_rows} == {"validation"}
-    assert {row["budget_fraction"] for row in policy_rows} == {0.05}
+    assert {row["budget_fraction"] for row in policy_rows} == {0.5}
     assert {row["split"] for row in contrast_rows} == {"validation"}
-    assert {row["budget_fraction"] for row in contrast_rows} == {0.05}
+    assert {row["budget_fraction"] for row in contrast_rows} == {0.5}
 
 
 def test_bootstrap_artifact_defaults_to_validation_only(tmp_path) -> None:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -24,6 +23,7 @@ from uplift_modeling.evaluation.bootstrap_summary import (
     summarize_bootstrap_policy_metric_samples,
 )
 from uplift_modeling.evaluation.topk_policy import (
+    SELECTION_SPLIT,
     TOPK_BUDGET_FRACTIONS,
     calculate_topk_policy_metrics,
 )
@@ -32,11 +32,13 @@ from uplift_modeling.evaluation.uplift_metrics import (
     calculate_uplift_metrics,
     validate_prediction_frame,
 )
+from uplift_modeling.models.scoring import validate_model_artifact_identity
 
 
 LOGGER = logging.getLogger(__name__)
 LOCKED_TEST_ARTIFACT_NAME = "locked_test_evaluation"
 LOCKED_TEST_SPLIT = "test"
+SELECTION_ARTIFACT_TYPE = "model_selection_gate"
 
 
 def load_selection_gate_payload(selection_artifact_path: Path) -> dict[str, Any]:
@@ -54,6 +56,18 @@ def load_selection_gate_payload(selection_artifact_path: Path) -> dict[str, Any]
             "Selection Gate artifact must contain a JSON object: "
             f"{selection_artifact_path}"
         )
+    artifact_type = payload.get("artifact_type")
+    if artifact_type != SELECTION_ARTIFACT_TYPE:
+        raise ValueError(
+            "Selection Gate artifact_type must be "
+            f"'{SELECTION_ARTIFACT_TYPE}'. Received: {artifact_type}"
+        )
+    source_manifest_path = payload.get("source_manifest_path")
+    if not isinstance(source_manifest_path, str) or not source_manifest_path:
+        raise ValueError(
+            "Selection Gate artifact must contain a non-empty "
+            "'source_manifest_path'."
+        )
 
     return payload
 
@@ -67,6 +81,43 @@ def get_champion_policy(selection_payload: Mapping[str, Any]) -> str:
             "'champion_policy' string."
         )
 
+    return champion_policy
+
+
+def validate_selection_gate_payload(
+    selection_payload: Mapping[str, Any],
+    outcome: str,
+) -> str:
+    """Validate Selection Gate metadata and return its champion policy."""
+    champion_policy = get_champion_policy(selection_payload)
+    selection_settings = selection_payload.get("selection_settings")
+    if not isinstance(selection_settings, Mapping):
+        raise ValueError(
+            "Selection Gate artifact must contain "
+            "'selection_settings' as an object."
+        )
+    if selection_settings.get("split") != SELECTION_SPLIT:
+        raise ValueError(
+            "Selection Gate artifact must originate from validation. "
+            f"Received split: {selection_settings.get('split')!r}."
+        )
+    if selection_settings.get("outcome") != outcome:
+        raise ValueError(
+            "Selection Gate artifact and runtime must have the same outcome. "
+            f"Expected '{outcome}', received "
+            f"{selection_settings.get('outcome')!r}."
+        )
+
+    champion_model_artifact = selection_payload.get("champion_model_artifact")
+    if not isinstance(champion_model_artifact, Mapping):
+        raise ValueError(
+            "Selection Gate artifact must contain "
+            "'champion_model_artifact' as an object."
+        )
+    validate_model_artifact_identity(
+        policy=champion_policy,
+        model_artifact=champion_model_artifact,
+    )
     return champion_policy
 
 
@@ -161,36 +212,102 @@ def calculate_locked_test_rows(
     return rows
 
 
-def find_next_locked_test_run_number(
+def build_locked_test_evaluation_path(
     metric_dir: Path,
     dataset_name: str,
     outcome: str,
-) -> int:
-    """Return next run number for locked-test evaluation artifacts."""
-    prefix = f"{dataset_name}_{outcome}_{LOCKED_TEST_ARTIFACT_NAME}_run"
-    pattern = re.compile(rf"^{re.escape(prefix)}(\d+)\.json$")
-    run_numbers = []
+    experiment_id: str,
+) -> Path:
+    """Return the deterministic locked-test evaluation JSON path."""
+    return metric_dir / (
+        f"{dataset_name}_{outcome}_{experiment_id}_"
+        f"{LOCKED_TEST_ARTIFACT_NAME}.json"
+    )
 
-    if metric_dir.exists():
-        for artifact_path in metric_dir.iterdir():
-            if not artifact_path.is_file():
-                continue
 
-            match = pattern.match(artifact_path.name)
-            if match:
-                run_numbers.append(int(match.group(1)))
+def build_locked_test_prediction_path(
+    prediction_dir: Path,
+    dataset_name: str,
+    outcome: str,
+    champion_policy: str,
+    experiment_id: str,
+) -> Path:
+    """Return the deterministic champion locked-test prediction path."""
+    return prediction_dir / (
+        f"{dataset_name}_{outcome}_{champion_policy}_{experiment_id}_"
+        "locked_test_predictions.parquet"
+    )
 
-    if not run_numbers:
-        return 1
 
-    return max(run_numbers) + 1
+def load_locked_test_evaluation_payload(output_path: Path) -> dict[str, Any]:
+    """Load an existing locked-test evaluation JSON artifact."""
+    with output_path.open("r", encoding="utf-8") as input_file:
+        payload = json.load(input_file)
+
+    if not isinstance(payload, dict):
+        raise ValueError(
+            "Locked-test evaluation artifact must contain a JSON object: "
+            f"{output_path}"
+        )
+
+    return payload
+
+
+def validate_locked_test_evaluation_identity(
+    payload: Mapping[str, Any],
+    experiment_id: str,
+    champion_policy: str,
+    champion_model_artifact: Mapping[str, Any],
+) -> None:
+    """Validate that an existing final report belongs to the same champion."""
+    artifact_type = payload.get("artifact_type")
+    if artifact_type != LOCKED_TEST_ARTIFACT_NAME:
+        raise ValueError(
+            "Locked-test evaluation artifact_type must be "
+            f"'{LOCKED_TEST_ARTIFACT_NAME}'. Received: {artifact_type}"
+        )
+
+    if payload.get("experiment_id") != experiment_id:
+        raise ValueError(
+            "Existing locked-test evaluation belongs to a different "
+            "experiment_id."
+        )
+    if payload.get("champion_policy") != champion_policy:
+        raise ValueError(
+            "Existing locked-test evaluation belongs to a different "
+            "champion_policy."
+        )
+    if payload.get("champion_model_artifact") != dict(champion_model_artifact):
+        raise ValueError(
+            "Existing locked-test evaluation belongs to a different "
+            "champion_model_artifact."
+        )
+
+
+def load_existing_locked_test_evaluation(
+    output_path: Path,
+    experiment_id: str,
+    champion_policy: str,
+    champion_model_artifact: Mapping[str, Any],
+) -> tuple[Path, dict[str, Any]]:
+    """Load and validate an existing deterministic final evaluation."""
+    payload = load_locked_test_evaluation_payload(output_path)
+    validate_locked_test_evaluation_identity(
+        payload=payload,
+        experiment_id=experiment_id,
+        champion_policy=champion_policy,
+        champion_model_artifact=champion_model_artifact,
+    )
+    return output_path, payload
 
 
 def save_locked_test_evaluation_artifact(
     metric_dir: Path,
     dataset_name: str,
     outcome: str,
+    experiment_id: str,
     champion_policy: str,
+    champion_model_artifact: Mapping[str, Any],
     selection_artifact_path: Path,
     prediction_paths: Mapping[str, Path],
     uplift_metrics: Mapping[str, float | int],
@@ -201,21 +318,26 @@ def save_locked_test_evaluation_artifact(
     budget_fractions: Iterable[float] = TOPK_BUDGET_FRACTIONS,
 ) -> tuple[Path, dict[str, Any]]:
     """Save the locked-test evaluation JSON artifact."""
-    run_number = find_next_locked_test_run_number(
+    output_path = build_locked_test_evaluation_path(
         metric_dir=metric_dir,
         dataset_name=dataset_name,
         outcome=outcome,
+        experiment_id=experiment_id,
     )
-    output_path = metric_dir / (
-        f"{dataset_name}_{outcome}_{LOCKED_TEST_ARTIFACT_NAME}_"
-        f"run{run_number:02d}.json"
-    )
+    if output_path.exists():
+        raise FileExistsError(
+            "Locked-test evaluation JSON already exists and will not be "
+            f"overwritten: {output_path}"
+        )
+
     payload = {
         "artifact_type": LOCKED_TEST_ARTIFACT_NAME,
+        "experiment_id": experiment_id,
         "dataset_name": dataset_name,
         "outcome": outcome,
         "split": LOCKED_TEST_SPLIT,
         "champion_policy": champion_policy,
+        "champion_model_artifact": dict(champion_model_artifact),
         "selection_artifact": selection_artifact_path.name,
         "prediction_artifacts": {
             policy: prediction_path.name
@@ -248,7 +370,31 @@ def save_locked_test_evaluation(
 ) -> tuple[Path, dict[str, Any]]:
     """Load fixed champion predictions and save locked-test reporting JSON."""
     selection_payload = load_selection_gate_payload(selection_artifact_path)
-    champion_policy = get_champion_policy(selection_payload)
+    champion_policy = validate_selection_gate_payload(
+        selection_payload=selection_payload,
+        outcome=outcome,
+    )
+    experiment_id = selection_payload.get("experiment_id")
+    if not isinstance(experiment_id, str) or not experiment_id:
+        raise ValueError(
+            "Selection Gate artifact must contain a non-empty "
+            "'experiment_id'."
+        )
+    champion_model_artifact = selection_payload["champion_model_artifact"]
+    output_path = build_locked_test_evaluation_path(
+        metric_dir=metric_dir,
+        dataset_name=dataset_name,
+        outcome=outcome,
+        experiment_id=experiment_id,
+    )
+    if output_path.exists():
+        return load_existing_locked_test_evaluation(
+            output_path=output_path,
+            experiment_id=experiment_id,
+            champion_policy=champion_policy,
+            champion_model_artifact=champion_model_artifact,
+        )
+
     fractions = tuple(float(fraction) for fraction in budget_fractions)
     prediction_paths = resolve_required_prediction_paths(
         manifest_prediction_paths=manifest_prediction_paths,
@@ -280,7 +426,9 @@ def save_locked_test_evaluation(
         metric_dir=metric_dir,
         dataset_name=dataset_name,
         outcome=outcome,
+        experiment_id=experiment_id,
         champion_policy=champion_policy,
+        champion_model_artifact=champion_model_artifact,
         selection_artifact_path=selection_artifact_path,
         prediction_paths=prediction_paths,
         uplift_metrics=uplift_metrics,

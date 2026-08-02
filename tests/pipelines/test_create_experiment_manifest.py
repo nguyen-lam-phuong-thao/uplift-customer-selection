@@ -43,12 +43,12 @@ def _write_prediction_artifact(
     """Write a prediction artifact and its model provenance sidecar."""
     pd.DataFrame(
         {
-            "row_id": [],
-            "treatment": [],
-            "outcome": [],
-            "split": [],
-            "score": [],
-            "model_name": [],
+            "row_id": [1],
+            "treatment": [1],
+            "outcome": [1],
+            "split": ["validation"],
+            "score": [0.8],
+            "model_name": [policy_name],
         }
     ).to_parquet(prediction_path, index=False)
 
@@ -163,12 +163,12 @@ def test_create_experiment_manifest_requires_model_provenance(
     )
     pd.DataFrame(
         {
-            "row_id": [],
-            "treatment": [],
-            "outcome": [],
-            "split": [],
-            "score": [],
-            "model_name": [],
+            "row_id": [1],
+            "treatment": [1],
+            "outcome": [1],
+            "split": ["validation"],
+            "score": [0.8],
+            "model_name": ["t_learner_lgbm"],
         }
     ).to_parquet(prediction_path, index=False)
 
