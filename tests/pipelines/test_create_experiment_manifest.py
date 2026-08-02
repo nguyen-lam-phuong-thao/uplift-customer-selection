@@ -2,11 +2,15 @@
 
 import json
 from pathlib import Path
+import pytest
 
 import pandas as pd
 
 from uplift_modeling.pipelines.create_experiment_manifest import (
     create_experiment_manifest,
+)
+from uplift_modeling.artifacts.model_provenance import (
+    get_model_provenance_path,
 )
 
 
@@ -31,8 +35,12 @@ def _write_config(tmp_path: Path) -> Path:
     return config_path
 
 
-def _write_prediction_artifact(prediction_path: Path) -> None:
-    """Write an empty parquet prediction artifact with the current schema."""
+def _write_prediction_artifact(
+    prediction_path: Path,
+    policy_name: str,
+    outcome: str = "conversion",
+) -> None:
+    """Write a prediction artifact and its model provenance sidecar."""
     pd.DataFrame(
         {
             "row_id": [],
@@ -44,6 +52,21 @@ def _write_prediction_artifact(prediction_path: Path) -> None:
         }
     ).to_parquet(prediction_path, index=False)
 
+    provenance = {
+        "artifact_type": "model_provenance",
+        "dataset_name": "criteo",
+        "outcome": outcome,
+        "policy_name": policy_name,
+        "prediction_artifact": prediction_path.name,
+        "model_kind": "test_model",
+        "mlflow_run_id": f"run-{policy_name}",
+        "model_uri": f"runs:/run-{policy_name}/model",
+    }
+    get_model_provenance_path(prediction_path).write_text(
+        json.dumps(provenance),
+        encoding="utf-8",
+    )
+
 
 def test_create_experiment_manifest_writes_latest_prediction_mapping(
     tmp_path,
@@ -53,20 +76,23 @@ def test_create_experiment_manifest_writes_latest_prediction_mapping(
     prediction_dir = tmp_path / "predictions"
     _write_prediction_artifact(
         prediction_dir
-        / "criteo_conversion_response_lgbm_run01_predictions.parquet"
+        / "criteo_conversion_response_lgbm_run01_predictions.parquet",
+        policy_name="pooled_response_lgbm",
     )
     _write_prediction_artifact(
         prediction_dir
-        / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet"
+        / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet",
+        policy_name="t_learner_lgbm",
     )
     latest_x_learner = (
         prediction_dir
         / "criteo_conversion_x_learner_lgbm_run02_predictions.parquet"
     )
-    _write_prediction_artifact(latest_x_learner)
+    _write_prediction_artifact(latest_x_learner, policy_name="x_learner_lgbm")
     _write_prediction_artifact(
         prediction_dir
-        / "criteo_conversion_x_learner_lgbm_run01_predictions.parquet"
+        / "criteo_conversion_x_learner_lgbm_run01_predictions.parquet",
+        policy_name="x_learner_lgbm",
     )
 
     output_path = create_experiment_manifest(
@@ -77,7 +103,7 @@ def test_create_experiment_manifest_writes_latest_prediction_mapping(
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert output_path == (
-        tmp_path / "metrics" / "criteo_conversion_experiment_manifest.json"
+        tmp_path / "metrics" / "criteo_conversion_exp-001_experiment_manifest.json"
     )
     assert payload["artifact_type"] == "experiment_manifest"
     assert payload["experiment_id"] == "exp-001"
@@ -94,3 +120,61 @@ def test_create_experiment_manifest_writes_latest_prediction_mapping(
         ).resolve().as_posix(),
         "x_learner_lgbm": latest_x_learner.resolve().as_posix(),
     }
+
+
+def test_create_experiment_manifest_does_not_overwrite_existing_manifest(
+    tmp_path,
+) -> None:
+    """An immutable experiment manifest cannot be overwritten."""
+    config_path = _write_config(tmp_path)
+    prediction_path = (
+        tmp_path
+        / "predictions"
+        / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet"
+    )
+    _write_prediction_artifact(
+        prediction_path,
+        policy_name="t_learner_lgbm",
+    )
+
+    create_experiment_manifest(
+        config_path=config_path,
+        outcome="conversion",
+        experiment_id="exp-001",
+    )
+
+    with pytest.raises(FileExistsError, match="cannot be overwritten"):
+        create_experiment_manifest(
+            config_path=config_path,
+            outcome="conversion",
+            experiment_id="exp-001",
+        )
+
+
+def test_create_experiment_manifest_requires_model_provenance(
+    tmp_path,
+) -> None:
+    """Every selected prediction artifact must have model provenance."""
+    config_path = _write_config(tmp_path)
+    prediction_path = (
+        tmp_path
+        / "predictions"
+        / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet"
+    )
+    pd.DataFrame(
+        {
+            "row_id": [],
+            "treatment": [],
+            "outcome": [],
+            "split": [],
+            "score": [],
+            "model_name": [],
+        }
+    ).to_parquet(prediction_path, index=False)
+
+    with pytest.raises(FileNotFoundError, match="Missing model provenance"):
+        create_experiment_manifest(
+            config_path=config_path,
+            outcome="conversion",
+            experiment_id="exp-001",
+        )

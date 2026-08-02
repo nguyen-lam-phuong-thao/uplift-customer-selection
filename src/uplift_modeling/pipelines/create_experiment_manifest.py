@@ -3,12 +3,14 @@
 import argparse
 import logging
 from pathlib import Path
+import re
 
 from uplift_modeling.artifacts.manifest import (
     build_experiment_manifest,
     build_experiment_manifest_model_artifacts,
     find_latest_prediction_artifacts,
     save_experiment_manifest,
+    validate_model_artifacts_match_predictions,
 )
 from uplift_modeling.data.dataset_spec import (
     get_dataset_spec,
@@ -42,8 +44,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--experiment-id",
-        default=None,
-        help="Optional experiment ID. Defaults to '<dataset>-<outcome>-latest'.",
+        required=True,
+        help="Unique immutable ID for this experiment manifest.",
     )
     parser.add_argument(
         "--models",
@@ -75,9 +77,10 @@ def get_manifest_output_path(
     project_root: Path,
     dataset_name: str,
     outcome: str,
+    experiment_id: str,
     output_override: str | None,
 ) -> Path:
-    """Return the requested or default manifest output path."""
+    """Return the requested or default immutable manifest output path."""
     if output_override is not None:
         return resolve_project_path(output_override, project_root)
 
@@ -85,13 +88,15 @@ def get_manifest_output_path(
         output_config["metric_dir"],
         project_root,
     )
-    return metric_dir / f"{dataset_name}_{outcome}_experiment_manifest.json"
+    return metric_dir / (
+        f"{dataset_name}_{outcome}_{experiment_id}_experiment_manifest.json"
+    )
 
 
 def create_experiment_manifest(
     config_path: Path,
     outcome: str,
-    experiment_id: str | None = None,
+    experiment_id: str,
     model_names: tuple[str, ...] | None = None,
     prediction_dir_override: str | None = None,
     output_override: str | None = None,
@@ -104,6 +109,12 @@ def create_experiment_manifest(
     dataset_spec = get_dataset_spec(str(data_config["dataset_name"]))
     dataset_name = dataset_spec.name
     validate_supported_outcome(dataset_spec, outcome)
+
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", experiment_id) is None:
+        raise ValueError(
+            "experiment_id must start with a letter or number and contain "
+            "only letters, numbers, '.', '_' or '-'."
+        )
 
     prediction_dir = resolve_project_path(
         (
@@ -119,19 +130,50 @@ def create_experiment_manifest(
         outcome=outcome,
         model_names=model_names,
     )
+    model_artifacts = build_experiment_manifest_model_artifacts(
+        prediction_artifacts
+    )
+
+    missing_provenance = sorted(
+        set(prediction_artifacts).difference(model_artifacts)
+    )
+    if missing_provenance:
+        raise FileNotFoundError(
+            "Missing model provenance for prediction artifact(s): "
+            f"{missing_provenance}."
+        )
+
+    validate_model_artifacts_match_predictions(
+        model_artifacts=model_artifacts,
+        prediction_paths=prediction_artifacts,
+    )
+
+    for policy_name, model_artifact in model_artifacts.items():
+        if model_artifact.get("dataset_name") != dataset_name:
+            raise ValueError(
+                f"Model provenance dataset_name does not match for "
+                f"policy '{policy_name}'."
+            )
+
+        if model_artifact.get("outcome") != outcome:
+            raise ValueError(
+                f"Model provenance outcome does not match for "
+                f"policy '{policy_name}'."
+            )
+
+        if model_artifact.get("policy_name") != policy_name:
+            raise ValueError(
+                f"Model provenance policy_name does not match manifest key "
+                f"'{policy_name}'."
+            )
+
     manifest = build_experiment_manifest(
-        experiment_id=(
-            experiment_id
-            if experiment_id is not None
-            else f"{dataset_name}-{outcome}-latest"
-        ),
+        experiment_id=experiment_id,
         dataset_name=dataset_name,
         outcome=outcome,
         config_path=config_path,
         prediction_artifacts=prediction_artifacts,
-        model_artifacts=build_experiment_manifest_model_artifacts(
-            prediction_artifacts
-        ),
+        model_artifacts=model_artifacts,
         project_root=project_root,
     )
     output_path = get_manifest_output_path(
@@ -139,8 +181,16 @@ def create_experiment_manifest(
         project_root=project_root,
         dataset_name=dataset_name,
         outcome=outcome,
+        experiment_id=experiment_id,
         output_override=output_override,
     )
+
+    if output_path.exists():
+        raise FileExistsError(
+            "Experiment manifest already exists and cannot be overwritten: "
+            f"{output_path}"
+        )
+    
     save_experiment_manifest(
         manifest=manifest,
         output_path=output_path,

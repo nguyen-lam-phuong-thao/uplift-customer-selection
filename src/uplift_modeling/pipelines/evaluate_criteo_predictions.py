@@ -5,6 +5,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import pyarrow.parquet as pq
@@ -55,6 +59,9 @@ from uplift_modeling.utils.config import (
     get_project_root,
     load_yaml_config,
     resolve_project_path,
+)
+from uplift_modeling.pipelines.evaluate_locked_test import (
+    evaluate_locked_test,
 )
 
 
@@ -379,6 +386,13 @@ def evaluate_predictions(
     validate_supported_outcome(dataset_spec, outcome)
     bootstrap_splits = get_bootstrap_splits(bootstrap_splits)
     manifest = load_experiment_manifest(manifest_path)
+    experiment_id = manifest.get("experiment_id")
+
+    if not isinstance(experiment_id, str) or not experiment_id:
+        raise ValueError(
+            "Experiment manifest must contain a non-empty 'experiment_id'."
+        )
+    
     manifest_prediction_paths = resolve_prediction_paths(
         manifest=manifest,
         manifest_path=manifest_path,
@@ -411,6 +425,7 @@ def evaluate_predictions(
         outcome=outcome,
         random_seed=random_seed,
     )
+    selection_artifact_path: Path | None = None
 
     if skip_bootstrap:
         LOGGER.info(
@@ -437,98 +452,131 @@ def evaluate_predictions(
                 warnings=topk_warnings,
             )
         )
-        save_model_selection_gate(
+
+        selection_payload = {
+            **bootstrap_payload,
+            "paired_contrast_rows": [
+                row
+                for row in bootstrap_payload["paired_contrast_rows"]
+                if str(row["policy"]) in policy_paths
+            ],
+        }
+
+        model_artifacts = manifest.get("model_artifacts")
+        if not isinstance(model_artifacts, dict) or not model_artifacts:
+            raise ValueError(
+                "Experiment manifest must contain model_artifacts "
+                "for champion selection."
+            )
+
+        selection_artifact_path, _ = save_model_selection_gate(
             metric_dir=metric_dir,
             dataset_name=dataset_name,
-            settings=get_selection_gate_settings(config, outcome=outcome),
-            bootstrap_payload=bootstrap_payload,
+            experiment_id=experiment_id,
+            settings=get_selection_gate_settings(
+                config,
+                outcome=outcome,
+            ),
+            model_artifacts=model_artifacts,
+            bootstrap_payload=selection_payload,
             bootstrap_json_path=bootstrap_contrast_path,
         )
 
-    if topk_only:
-        return
-
-    prediction_paths = [
-        prediction_path
-        for _, prediction_path in sorted(manifest_prediction_paths.items())
-    ]
-    model_comparison_name = build_model_comparison_name(prediction_paths)
-    run_number = find_next_run_number(
-        artifact_dirs=(metric_dir, figure_dir),
-        db_name=dataset_name,
-        outcome=outcome,
-        model_name=model_comparison_name,
-    )
-    metrics_path = resolve_project_path(
-        metric_dir
-        / build_artifact_filename(
+    if not topk_only:
+        prediction_paths = [
+            prediction_path
+            for _, prediction_path in sorted(manifest_prediction_paths.items())
+        ]
+        model_comparison_name = build_model_comparison_name(prediction_paths)
+        run_number = find_next_run_number(
+            artifact_dirs=(metric_dir, figure_dir),
             db_name=dataset_name,
             outcome=outcome,
             model_name=model_comparison_name,
-            run_number=run_number,
-            artifact_name="evaluation",
-            extension="json",
-        ),
-        project_root,
-    )
-    qini_curve_path = resolve_project_path(
-        figure_dir
-        / build_artifact_filename(
-            db_name=dataset_name,
+        )
+        metrics_path = resolve_project_path(
+            metric_dir
+            / build_artifact_filename(
+                db_name=dataset_name,
+                outcome=outcome,
+                model_name=model_comparison_name,
+                run_number=run_number,
+                artifact_name="evaluation",
+                extension="json",
+            ),
+            project_root,
+        )
+        qini_curve_path = resolve_project_path(
+            figure_dir
+            / build_artifact_filename(
+                db_name=dataset_name,
+                outcome=outcome,
+                model_name=model_comparison_name,
+                run_number=run_number,
+                artifact_name="qini_curve",
+                extension="png",
+            ),
+            project_root,
+        )
+        uplift_curve_path = resolve_project_path(
+            figure_dir
+            / build_artifact_filename(
+                db_name=dataset_name,
+                outcome=outcome,
+                model_name=model_comparison_name,
+                run_number=run_number,
+                artifact_name="uplift_curve",
+                extension="png",
+            ),
+            project_root,
+        )
+
+        predictions = align_prediction_artifacts(
+            filter_evaluation_splits(load_prediction_artifacts(prediction_paths))
+        )
+        split_metrics = calculate_split_metrics(
+            predictions,
+            top_fraction=top_fraction,
+        )
+        payload = {
+            "outcome": outcome,
+            "top_fraction": top_fraction,
+            "curve_num_points": curve_num_points,
+            "prediction_artifacts": [
+                prediction_path.name for prediction_path in prediction_paths
+            ],
+            "metrics": split_metrics,
+        }
+
+        save_json_artifact(payload, metrics_path)
+        save_qini_curve(
+            predictions,
+            qini_curve_path,
+            curve_num_points=curve_num_points,
+        )
+        save_uplift_curve(
+            predictions,
+            uplift_curve_path,
+            curve_num_points=curve_num_points,
+        )
+
+        LOGGER.info("Saved evaluation metrics to %s", metrics_path)
+        LOGGER.info("Saved Qini curve to %s", qini_curve_path)
+        LOGGER.info("Saved uplift curve to %s", uplift_curve_path)
+
+    if selection_artifact_path is not None and not topk_only:
+        locked_test_path = evaluate_locked_test(
+            config_path=config_path,
+            manifest_path=manifest_path,
+            selection_artifact_path=selection_artifact_path,
             outcome=outcome,
-            model_name=model_comparison_name,
-            run_number=run_number,
-            artifact_name="qini_curve",
-            extension="png",
-        ),
-        project_root,
-    )
-    uplift_curve_path = resolve_project_path(
-        figure_dir
-        / build_artifact_filename(
-            db_name=dataset_name,
-            outcome=outcome,
-            model_name=model_comparison_name,
-            run_number=run_number,
-            artifact_name="uplift_curve",
-            extension="png",
-        ),
-        project_root,
-    )
-
-    predictions = align_prediction_artifacts(
-        filter_evaluation_splits(load_prediction_artifacts(prediction_paths))
-    )
-    split_metrics = calculate_split_metrics(
-        predictions,
-        top_fraction=top_fraction,
-    )
-    payload = {
-        "outcome": outcome,
-        "top_fraction": top_fraction,
-        "curve_num_points": curve_num_points,
-        "prediction_artifacts": [
-            prediction_path.name for prediction_path in prediction_paths
-        ],
-        "metrics": split_metrics,
-    }
-
-    save_json_artifact(payload, metrics_path)
-    save_qini_curve(
-        predictions,
-        qini_curve_path,
-        curve_num_points=curve_num_points,
-    )
-    save_uplift_curve(
-        predictions,
-        uplift_curve_path,
-        curve_num_points=curve_num_points,
-    )
-
-    LOGGER.info("Saved evaluation metrics to %s", metrics_path)
-    LOGGER.info("Saved Qini curve to %s", qini_curve_path)
-    LOGGER.info("Saved uplift curve to %s", uplift_curve_path)
-
+            n_bootstrap=n_bootstrap,
+            random_seed=random_seed,
+        )
+        LOGGER.info(
+            "Saved locked-test evaluation to %s",
+            locked_test_path,
+        )
 
 def main() -> None:
     """CLI entry point."""

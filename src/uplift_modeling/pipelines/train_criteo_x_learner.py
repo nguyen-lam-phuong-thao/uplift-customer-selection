@@ -36,6 +36,7 @@ from uplift_modeling.pipelines.train_criteo_response_model import (
     load_training_frame,
     resolve_dataset_spec,
     validate_outcome,
+    get_training_splits,
 )
 from uplift_modeling.pipelines.train_criteo_t_learner import (
     CONTROL_VALUE,
@@ -91,9 +92,8 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
     feature_columns = dataset_spec.feature_columns
     treatment_column = dataset_spec.treatment_column
     split_column = dataset_spec.split_column
-    train_split = str(training_config.get("train_split", "train"))
-    validation_split = str(
-        training_config.get("validation_split", "validation")
+    train_split, validation_split = get_training_splits(
+        training_config
     )
     prediction_batch_size = int(training_config["prediction_batch_size"])
     early_stopping_rounds = int(training_config["early_stopping_rounds"])

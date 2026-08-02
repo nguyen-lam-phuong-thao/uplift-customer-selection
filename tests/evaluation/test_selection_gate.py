@@ -162,20 +162,97 @@ def test_selection_gate_rejects_invalid_numeric_values() -> None:
 
 
 def test_save_model_selection_gate_writes_json_artifact(tmp_path) -> None:
-    """Selection gate saves a dedicated run-numbered JSON artifact."""
+    """Selection gate saves the selected champion and its exact provenance."""
     bootstrap_path = tmp_path / "bootstrap_paired_contrasts.json"
     bootstrap_path.write_text(
         json.dumps(_payload([_row("x_learner_lgbm", 0.10, 0.01)])),
         encoding="utf-8",
     )
 
+    model_artifacts = {
+        "x_learner_lgbm": {
+            "artifact_type": "model_provenance",
+            "dataset_name": "criteo",
+            "outcome": "visit",
+            "policy_name": "x_learner_lgbm",
+            "prediction_artifact": (
+                "criteo_visit_x_learner_lgbm_run01_predictions.parquet"
+            ),
+            "model_kind": "x_learner",
+            "mlflow_run_id": "x-run-01",
+            "tau0_model_uri": "runs:/x-run-01/tau0_model",
+            "tau1_model_uri": "runs:/x-run-01/tau1_model",
+            "constant_treatment_rate_weight": 0.5,
+        }
+    }
+
     output_path, payload = save_model_selection_gate(
         metric_dir=tmp_path,
         dataset_name="criteo",
         settings=SETTINGS,
+        experiment_id="exp-001",
+        model_artifacts=model_artifacts,
         bootstrap_json_path=bootstrap_path,
     )
 
     assert output_path.exists()
-    assert output_path.name == "criteo_visit_model_selection_gate_run01.json"
+    assert output_path.name == "criteo_visit_exp-001_model_selection_gate.json"
     assert payload["champion_policy"] == "x_learner_lgbm"
+    assert (
+        payload["champion_model_artifact"]["mlflow_run_id"]
+        == "x-run-01"
+    )
+    assert (
+        payload["champion_model_artifact"]["tau0_model_uri"]
+        == "runs:/x-run-01/tau0_model"
+    )
+
+def test_save_model_selection_gate_does_not_overwrite_experiment(
+    tmp_path,
+) -> None:
+    bootstrap_path = tmp_path / "bootstrap.json"
+    bootstrap_path.write_text(
+        json.dumps(
+            _payload(
+                [_row("x_learner_lgbm", 0.10, 0.01)]
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    model_artifacts = {
+        "x_learner_lgbm": {
+            "artifact_type": "model_provenance",
+            "dataset_name": "criteo",
+            "outcome": "visit",
+            "policy_name": "x_learner_lgbm",
+            "prediction_artifact": "x_predictions.parquet",
+            "model_kind": "x_learner",
+            "mlflow_run_id": "x-run-01",
+            "tau0_model_uri": "runs:/x-run-01/tau0_model",
+            "tau1_model_uri": "runs:/x-run-01/tau1_model",
+            "constant_treatment_rate_weight": 0.5,
+        }
+    }
+
+    save_model_selection_gate(
+        metric_dir=tmp_path,
+        dataset_name="criteo",
+        experiment_id="exp-001",
+        settings=SETTINGS,
+        model_artifacts=model_artifacts,
+        bootstrap_json_path=bootstrap_path,
+    )
+
+    with pytest.raises(
+        FileExistsError,
+        match="cannot be overwritten",
+    ):
+        save_model_selection_gate(
+            metric_dir=tmp_path,
+            dataset_name="criteo",
+            experiment_id="exp-001",
+            settings=SETTINGS,
+            model_artifacts=model_artifacts,
+            bootstrap_json_path=bootstrap_path,
+        )    

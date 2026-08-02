@@ -106,6 +106,33 @@ def get_prediction_splits(output_config: dict[str, Any]) -> tuple[str, ...]:
     return prediction_splits
 
 
+def get_training_splits(
+    training_config: dict[str, Any],
+) -> tuple[str, str]:
+    """Return the fixed train and validation split names."""
+    train_split = str(
+        training_config.get("train_split", "train")
+    )
+    validation_split = str(
+        training_config.get("validation_split", "validation")
+    )
+
+    if train_split != "train":
+        raise ValueError(
+            "training.train_split must be 'train'. "
+            f"Received: '{train_split}'."
+        )
+
+    if validation_split != "validation":
+        raise ValueError(
+            "training.validation_split must be 'validation'. "
+            "The test split is reserved for locked-test evaluation. "
+            f"Received: '{validation_split}'."
+        )
+
+    return train_split, validation_split
+
+
 def get_tracking_config(config: dict[str, Any]) -> dict[str, Any]:
     """Return tracking config with local-safe defaults."""
     tracking_config = config.get("tracking", {})
@@ -265,9 +292,8 @@ def train_response_pipeline(config_path: Path, outcome: str) -> None:
     feature_columns = dataset_spec.feature_columns
     treatment_column = dataset_spec.treatment_column
     split_column = dataset_spec.split_column
-    train_split = str(training_config.get("train_split", "train"))
-    validation_split = str(
-        training_config.get("validation_split", "validation")
+    train_split, validation_split = get_training_splits(
+        training_config
     )
     prediction_batch_size = int(training_config["prediction_batch_size"])
     early_stopping_rounds = int(training_config["early_stopping_rounds"])

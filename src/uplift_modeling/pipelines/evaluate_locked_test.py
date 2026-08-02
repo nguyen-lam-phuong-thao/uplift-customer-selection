@@ -10,7 +10,6 @@ import pandas as pd
 
 from uplift_modeling.artifacts.manifest import (
     load_experiment_manifest,
-    resolve_model_artifacts,
     resolve_prediction_paths,
     validate_model_artifacts_match_predictions,
 )
@@ -252,7 +251,105 @@ def evaluate_locked_test(
     champion_policy = get_champion_policy(selection_payload)
     required_policies = (champion_policy,)
 
+    champion_model_artifact = selection_payload.get(
+        "champion_model_artifact"
+    )
+
+    if not isinstance(champion_model_artifact, dict):
+        raise ValueError(
+            "Selection Gate artifact must contain "
+            "'champion_model_artifact'."
+        )
+
+    if champion_model_artifact.get("policy_name") != champion_policy:
+        raise ValueError(
+            "Selection Gate champion_policy does not match "
+            "champion_model_artifact."
+        )
+
+    model_artifacts = {
+        champion_policy: champion_model_artifact,
+    }
+
     manifest = load_experiment_manifest(manifest_path)
+    selection_experiment_id = selection_payload.get(
+            "experiment_id"
+    )
+    manifest_experiment_id = manifest.get("experiment_id")
+
+    if (
+        not isinstance(selection_experiment_id, str)
+        or not selection_experiment_id
+    ):
+        raise ValueError(
+            "Selection Gate artifact must contain a non-empty "
+            "'experiment_id'."
+        )
+
+    if selection_experiment_id != manifest_experiment_id:
+        raise ValueError(
+            "Selection Gate artifact and experiment manifest must "
+            "have the same experiment_id. "
+            f"Selection: {selection_experiment_id!r}; "
+            f"manifest: {manifest_experiment_id!r}."
+        )
+
+    selection_dataset_name = selection_payload.get(
+        "dataset_name"
+    )
+    manifest_dataset_name = manifest.get("dataset_name")
+
+    if (
+        selection_dataset_name != manifest_dataset_name
+        or selection_dataset_name != dataset_name
+    ):
+        raise ValueError(
+            "Selection Gate artifact, experiment manifest, and "
+            "config must have the same dataset_name. "
+            f"Selection: {selection_dataset_name!r}; "
+            f"manifest: {manifest_dataset_name!r}; "
+            f"config: {dataset_name!r}."
+        )
+
+    selection_settings = selection_payload.get(
+        "selection_settings"
+    )
+    if not isinstance(selection_settings, Mapping):
+        raise ValueError(
+            "Selection Gate artifact must contain "
+            "'selection_settings' as an object."
+        )
+
+    selection_outcome = selection_settings.get("outcome")
+    manifest_outcome = manifest.get("outcome")
+
+    if (
+        selection_outcome != manifest_outcome
+        or selection_outcome != outcome
+    ):
+        raise ValueError(
+            "Selection Gate artifact, experiment manifest, and "
+            "Locked Test request must have the same outcome. "
+            f"Selection: {selection_outcome!r}; "
+            f"manifest: {manifest_outcome!r}; "
+            f"requested: {outcome!r}."
+        )
+
+    if (
+        champion_model_artifact.get("dataset_name")
+        != dataset_name
+    ):
+        raise ValueError(
+            "Champion model provenance dataset_name does not "
+            "match the Locked Test dataset."
+        )
+
+    if champion_model_artifact.get("outcome") != outcome:
+        raise ValueError(
+            "Champion model provenance outcome does not match "
+            "the Locked Test outcome."
+        )
+
     validation_prediction_paths = resolve_prediction_paths(
         manifest=manifest,
         manifest_path=manifest_path,
@@ -261,10 +358,7 @@ def evaluate_locked_test(
         project_root=project_root,
         required_policies=required_policies,
     )
-    model_artifacts = resolve_model_artifacts(
-        manifest=manifest,
-        required_policies=required_policies,
-    )
+
     validate_model_artifacts_match_predictions(
         model_artifacts=model_artifacts,
         prediction_paths=validation_prediction_paths,

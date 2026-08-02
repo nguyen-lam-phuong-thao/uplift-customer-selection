@@ -34,7 +34,10 @@ def _write_config(tmp_path: Path) -> Path:
 
 def _write_manifest(tmp_path: Path, outcome: str = "visit") -> Path:
     """Write a minimal manifest with an existing prediction reference."""
-    prediction_path = tmp_path / "pred.parquet"
+    prediction_path = (
+        tmp_path
+        / f"criteo_{outcome}_t_learner_lgbm_run01_predictions.parquet"
+    )
     prediction_path.touch()
     manifest_path = tmp_path / "experiment_manifest.json"
     manifest_path.write_text(
@@ -47,6 +50,19 @@ def _write_manifest(tmp_path: Path, outcome: str = "visit") -> Path:
                 "config_path": str(tmp_path / "config.yaml"),
                 "prediction_artifacts": {
                     "t_learner_lgbm": str(prediction_path),
+                },
+                "model_artifacts": {
+                    "t_learner_lgbm": {
+                        "artifact_type": "model_provenance",
+                        "dataset_name": "criteo",
+                        "outcome": outcome,
+                        "policy_name": "t_learner_lgbm",
+                        "prediction_artifact": prediction_path.name,
+                        "model_kind": "t_learner",
+                        "mlflow_run_id": "t-run-01",
+                        "treatment_model_uri": "runs:/t-run-01/treatment_model",
+                        "control_model_uri": "runs:/t-run-01/control_model",
+                    }
                 },
             }
         ),
@@ -203,9 +219,20 @@ def test_evaluate_predictions_passes_bootstrap_filters(
     config_path = _write_config(tmp_path)
     manifest_path = _write_manifest(tmp_path)
     captured_bootstrap_kwargs = {}
-
+    captured_selection_kwargs = {}  
     def fake_prepare_topk_policy_frames(**kwargs):
-        return {"policy": object()}, {"policy": tmp_path / "pred.parquet"}, []
+        return (
+            {
+                "random_targeting": object(),
+                "t_learner_lgbm": object(),
+                "x_learner_lgbm": object(),
+            },
+            {
+                "t_learner_lgbm": tmp_path / "t_learner.parquet",
+                "x_learner_lgbm": tmp_path / "x_learner.parquet",
+            },
+            [],
+        )
 
     def fake_save_topk_policy_evaluation_artifacts(**kwargs):
         return tmp_path / "topk.json", {}
@@ -215,10 +242,17 @@ def test_evaluate_predictions_passes_bootstrap_filters(
         return (
             tmp_path / "bootstrap_policy.json",
             tmp_path / "bootstrap_contrast.json",
-            {"paired_contrast_rows": []},
+            {
+                "paired_contrast_rows": [
+                    {"policy": "random_targeting"},
+                    {"policy": "t_learner_lgbm"},
+                    {"policy": "x_learner_lgbm"},
+                ]
+            },
         )
 
     def fake_save_model_selection_gate(**kwargs):
+        captured_selection_kwargs.update(kwargs)
         return tmp_path / "selection.json", {}
 
     monkeypatch.setattr(
@@ -257,7 +291,15 @@ def test_evaluate_predictions_passes_bootstrap_filters(
 
     assert captured_bootstrap_kwargs["bootstrap_splits"] == ("validation",)
     assert captured_bootstrap_kwargs["budget_fractions"] == (0.05,)
-
+    assert [
+        row["policy"]
+        for row in captured_selection_kwargs[
+            "bootstrap_payload"
+        ]["paired_contrast_rows"]
+    ] == [
+        "t_learner_lgbm",
+        "x_learner_lgbm",
+    ]
 
 def test_evaluate_predictions_defaults_model_comparison_to_validation(
     tmp_path,
@@ -286,7 +328,11 @@ def test_evaluate_predictions_defaults_model_comparison_to_validation(
 
     def fake_prepare_topk_policy_frames(**kwargs):
         captured_topk_kwargs.update(kwargs)
-        return {"policy": object()}, {"policy": tmp_path / "pred.parquet"}, []
+        return (
+            {"t_learner_lgbm": object()},
+            {"t_learner_lgbm": tmp_path / "pred.parquet"},
+            [],
+        )
 
     def fake_save_topk_policy_evaluation_artifacts(**kwargs):
         return tmp_path / "topk.json", {}
@@ -345,6 +391,108 @@ def test_evaluate_predictions_defaults_model_comparison_to_validation(
         ]
     } == {"validation"}
 
+
+def test_evaluate_predictions_runs_locked_test_after_selection(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Full evaluation runs Locked Test with the selected champion."""
+    config_path = _write_config(tmp_path)
+    manifest_path = _write_manifest(tmp_path)
+    prediction_path = (
+        tmp_path
+        / "criteo_visit_t_learner_lgbm_run01_predictions.parquet"
+    )
+
+    _prediction_frame(
+        "t_learner_lgbm",
+        score=0.8,
+    ).to_parquet(
+        prediction_path,
+        index=False,
+    )
+
+    captured_locked_test_kwargs = {}
+
+    def fake_prepare_topk_policy_frames(**kwargs):
+        return (
+            {
+                "t_learner_lgbm": object(),
+            },
+            {
+                "t_learner_lgbm": prediction_path,
+            },
+            [],
+        )
+
+    def fake_save_topk_policy_evaluation_artifacts(**kwargs):
+        return tmp_path / "topk.json", {}
+
+    def fake_save_bootstrap_policy_evaluation(**kwargs):
+        return (
+            tmp_path / "bootstrap_policy.json",
+            tmp_path / "bootstrap_contrast.json",
+            {
+                "paired_contrast_rows": [
+                    {
+                        "policy": "t_learner_lgbm",
+                    }
+                ]
+            },
+        )
+
+    def fake_save_model_selection_gate(**kwargs):
+        return tmp_path / "selection.json", {}
+
+    def fake_evaluate_locked_test(**kwargs):
+        captured_locked_test_kwargs.update(kwargs)
+        return tmp_path / "locked_test.json"
+
+    monkeypatch.setattr(
+        pipeline,
+        "prepare_topk_policy_frames",
+        fake_prepare_topk_policy_frames,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_topk_policy_evaluation_artifacts",
+        fake_save_topk_policy_evaluation_artifacts,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_bootstrap_policy_evaluation",
+        fake_save_bootstrap_policy_evaluation,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_model_selection_gate",
+        fake_save_model_selection_gate,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "evaluate_locked_test",
+        fake_evaluate_locked_test,
+    )
+
+    pipeline.evaluate_predictions(
+        config_path=config_path,
+        manifest_path=manifest_path,
+        outcome="visit",
+        top_fraction=0.5,
+        curve_num_points=10,
+        random_seed=42,
+        n_bootstrap=3,
+        topk_only=False,
+    )
+
+    assert captured_locked_test_kwargs == {
+        "config_path": config_path,
+        "manifest_path": manifest_path,
+        "selection_artifact_path": tmp_path / "selection.json",
+        "outcome": "visit",
+        "n_bootstrap": 3,
+        "random_seed": 42,
+    }
 
 def test_selection_gate_uses_current_cli_outcome(
     tmp_path,

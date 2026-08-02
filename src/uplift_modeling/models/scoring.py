@@ -51,7 +51,7 @@ def _build_response_score_batch(
     policy: str,
     model_artifact: Mapping[str, Any],
 ) -> ScoreBatch:
-    model_uri = _require_string(model_artifact, "model_uri", policy)
+    model_uri = _require_model_uri(model_artifact, "model_uri", policy)
     model = mlflow.lightgbm.load_model(model_uri)
 
     def score_batch(features: pd.DataFrame) -> np.ndarray:
@@ -70,12 +70,12 @@ def _build_t_learner_score_batch(
     policy: str,
     model_artifact: Mapping[str, Any],
 ) -> ScoreBatch:
-    treatment_model_uri = _require_string(
+    treatment_model_uri = _require_model_uri(
         model_artifact,
         "treatment_model_uri",
         policy,
     )
-    control_model_uri = _require_string(
+    control_model_uri = _require_model_uri(
         model_artifact,
         "control_model_uri",
         policy,
@@ -99,12 +99,12 @@ def _build_x_learner_score_batch(
     policy: str,
     model_artifact: Mapping[str, Any],
 ) -> ScoreBatch:
-    treatment_effect_model_uri = _require_string(
+    treatment_effect_model_uri = _require_model_uri(
         model_artifact,
         "treatment_effect_model_uri",
         policy,
     )
-    control_effect_model_uri = _require_string(
+    control_effect_model_uri = _require_model_uri(
         model_artifact,
         "control_effect_model_uri",
         policy,
@@ -154,6 +154,34 @@ def _require_string(
             f"non-empty '{key}' string."
         )
     return value
+
+
+def _require_model_uri(
+    model_artifact: Mapping[str, Any],
+    key: str,
+    policy: str,
+) -> str:
+    """Return a model URI belonging to the declared MLflow run."""
+    model_uri = _require_string(
+        model_artifact,
+        key,
+        policy,
+    )
+    mlflow_run_id = _require_string(
+        model_artifact,
+        "mlflow_run_id",
+        policy,
+    )
+    expected_prefix = f"runs:/{mlflow_run_id}/"
+
+    if not model_uri.startswith(expected_prefix):
+        raise ValueError(
+            f"Model artifact metadata for policy '{policy}' has "
+            f"'{key}' that must belong to mlflow_run_id "
+            f"'{mlflow_run_id}'. Received: '{model_uri}'."
+        )
+
+    return model_uri
 
 
 def _require_float(

@@ -72,25 +72,46 @@ def _write_prepared_dataset(tmp_path: Path) -> Path:
 def _write_selection_artifact(
     tmp_path: Path,
     champion_policy: str,
+    include_champion_provenance: bool = True,
+    experiment_id: str = "exp-001",
 ) -> Path:
-    """Write a minimal Selection Gate artifact."""
+    """Write a Selection Gate artifact for locked-test pipeline tests."""
+    payload = {
+        "artifact_type": "model_selection_gate",
+        "experiment_id": experiment_id,
+        "dataset_name": "criteo",
+        "champion_policy": champion_policy,
+        "selection_settings": {
+            "outcome": "visit",
+            "split": "validation",
+            "budget_fraction": 0.1,
+            "metric": "policy_value",
+            "baseline_policy": "treated_response_lgbm",
+        },
+    }
+
+    if include_champion_provenance:
+        payload["champion_model_artifact"] = {
+            "artifact_type": "model_provenance",
+            "dataset_name": "criteo",
+            "outcome": "visit",
+            "policy_name": champion_policy,
+            "prediction_artifact": (
+                f"criteo_visit_{champion_policy}_run01_predictions.parquet"
+            ),
+            "model_kind": "t_learner",
+            "mlflow_run_id": f"run-{champion_policy}",
+            "treatment_model_uri": (
+                f"runs:/run-{champion_policy}/treatment_model"
+            ),
+            "control_model_uri": (
+                f"runs:/run-{champion_policy}/control_model"
+            ),
+        }
+
     selection_path = tmp_path / "selection.json"
     selection_path.write_text(
-        json.dumps(
-            {
-                "artifact_type": "model_selection_gate",
-                "dataset_name": "criteo",
-                "outcome": "visit",
-                "champion_policy": champion_policy,
-                "selection_settings": {
-                    "outcome": "visit",
-                    "split": "validation",
-                    "budget_fraction": 0.1,
-                    "metric": "policy_value",
-                    "baseline_policy": "treated_response_lgbm",
-                },
-            }
-        ),
+        json.dumps(payload),
         encoding="utf-8",
     )
     return selection_path
@@ -103,6 +124,7 @@ def _write_manifest(
     include_champion_provenance: bool = True,
     include_ignored_candidates: bool = True,
     include_champion_prediction: bool = True,
+    experiment_id: str = "exp-001",
 ) -> Path:
     """Write a validation manifest with model provenance."""
     prediction_dir = tmp_path / "validation_predictions"
@@ -145,7 +167,7 @@ def _write_manifest(
         json.dumps(
             {
                 "artifact_type": "experiment_manifest",
-                "experiment_id": "exp-001",
+                "experiment_id": experiment_id,
                 "dataset_name": "criteo",
                 "outcome": "visit",
                 "config_path": str(config_path),
@@ -234,18 +256,26 @@ def test_locked_test_pipeline_requires_existing_selection_artifact(
         )
 
 
-def test_locked_test_pipeline_fails_without_champion_provenance(tmp_path) -> None:
-    """A selected champion without model provenance fails clearly."""
+def test_locked_test_pipeline_fails_without_champion_provenance(
+    tmp_path,
+) -> None:
+    """Locked test rejects a selection artifact without champion provenance."""
     data_path = _write_prepared_dataset(tmp_path)
     config_path = _write_config(tmp_path, data_path)
     manifest_path = _write_manifest(
         tmp_path,
         config_path,
+    )
+    selection_path = _write_selection_artifact(
+        tmp_path,
+        "t_learner_lgbm",
         include_champion_provenance=False,
     )
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
 
-    with pytest.raises(ValueError, match="t_learner_lgbm"):
+    with pytest.raises(
+        ValueError,
+        match="champion_model_artifact",
+    ):
         pipeline.evaluate_locked_test(
             config_path=config_path,
             manifest_path=manifest_path,
@@ -328,6 +358,108 @@ def test_locked_test_pipeline_fails_without_champion_prediction(tmp_path) -> Non
     selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
 
     with pytest.raises(ValueError, match="t_learner_lgbm"):
+        pipeline.evaluate_locked_test(
+            config_path=config_path,
+            manifest_path=manifest_path,
+            selection_artifact_path=selection_path,
+            outcome="visit",
+        )
+
+
+def test_locked_test_rejects_mismatched_experiment_id(
+    tmp_path,
+) -> None:
+    """Selection and manifest must belong to the same experiment."""
+    data_path = _write_prepared_dataset(tmp_path)
+    config_path = _write_config(tmp_path, data_path)
+
+    manifest_path = _write_manifest(
+        tmp_path,
+        config_path,
+        experiment_id="exp-002",
+    )
+    selection_path = _write_selection_artifact(
+        tmp_path,
+        "t_learner_lgbm",
+        experiment_id="exp-001",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="same experiment_id",
+    ):
+        pipeline.evaluate_locked_test(
+            config_path=config_path,
+            manifest_path=manifest_path,
+            selection_artifact_path=selection_path,
+            outcome="visit",
+        )
+
+
+def test_locked_test_rejects_mismatched_dataset(
+    tmp_path,
+) -> None:
+    """Selection and manifest must use the configured dataset."""
+    data_path = _write_prepared_dataset(tmp_path)
+    config_path = _write_config(tmp_path, data_path)
+    manifest_path = _write_manifest(tmp_path, config_path)
+    selection_path = _write_selection_artifact(
+        tmp_path,
+        "t_learner_lgbm",
+    )
+
+    selection_payload = json.loads(
+        selection_path.read_text(encoding="utf-8")
+    )
+    selection_payload["dataset_name"] = "retailhero"
+    selection_path.write_text(
+        json.dumps(selection_payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="same dataset_name",
+    ):
+        pipeline.evaluate_locked_test(
+            config_path=config_path,
+            manifest_path=manifest_path,
+            selection_artifact_path=selection_path,
+            outcome="visit",
+        )
+
+
+def test_locked_test_rejects_mismatched_outcome(
+    tmp_path,
+) -> None:
+    """Selection outcome must match manifest and Locked Test request."""
+    data_path = _write_prepared_dataset(tmp_path)
+    config_path = _write_config(tmp_path, data_path)
+    manifest_path = _write_manifest(tmp_path, config_path)
+    selection_path = _write_selection_artifact(
+        tmp_path,
+        "t_learner_lgbm",
+    )
+
+    selection_payload = json.loads(
+        selection_path.read_text(encoding="utf-8")
+    )
+    selection_payload["selection_settings"][
+        "outcome"
+    ] = "conversion"
+    selection_payload["champion_model_artifact"][
+        "outcome"
+    ] = "conversion"
+
+    selection_path.write_text(
+        json.dumps(selection_payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="same outcome",
+    ):
         pipeline.evaluate_locked_test(
             config_path=config_path,
             manifest_path=manifest_path,

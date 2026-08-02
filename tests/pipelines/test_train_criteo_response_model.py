@@ -12,6 +12,7 @@ from uplift_modeling.pipelines.train_criteo_response_model import (
     load_training_frame,
     resolve_dataset_spec,
     validate_outcome,
+    get_training_splits,
 )
 from uplift_modeling.utils.config import get_config_section, load_yaml_config
 
@@ -69,6 +70,42 @@ def test_normal_prediction_splits_reject_test() -> None:
     """Normal training configs cannot request test predictions."""
     with pytest.raises(ValueError, match="invalid values"):
         get_prediction_splits({"prediction_splits": ["validation", "test"]})
+
+
+def test_training_splits_default_to_train_and_validation() -> None:
+    """Training uses the fixed pre-locked-test split boundary."""
+    assert get_training_splits({}) == (
+        "train",
+        "validation",
+    )
+
+
+def test_training_splits_reject_test_as_validation() -> None:
+    """Test cannot be used for early stopping."""
+    with pytest.raises(
+        ValueError,
+        match="test split is reserved",
+    ):
+        get_training_splits(
+            {
+                "train_split": "train",
+                "validation_split": "test",
+            }
+        )
+
+
+def test_training_splits_reject_non_train_fitting_split() -> None:
+    """Model fitting cannot use validation or test rows."""
+    with pytest.raises(
+        ValueError,
+        match="training.train_split must be 'train'",
+    ):
+        get_training_splits(
+            {
+                "train_split": "validation",
+                "validation_split": "validation",
+            }
+        )
 
 
 def test_data_config_loads_without_dataset_spec_schema_keys() -> None:

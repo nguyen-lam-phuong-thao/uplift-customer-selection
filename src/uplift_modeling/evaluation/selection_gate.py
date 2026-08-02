@@ -126,34 +126,12 @@ def select_champion_from_paired_contrasts(
     }
 
 
-def find_next_model_selection_run_number(
-    metric_dir: Path,
-    dataset_name: str,
-    outcome: str,
-) -> int:
-    """Return next run number for model-selection gate artifacts."""
-    prefix = f"{dataset_name}_{outcome}_{MODEL_SELECTION_ARTIFACT_NAME}_run"
-    pattern = re.compile(rf"^{re.escape(prefix)}(\d+)\.json$")
-    run_numbers = []
-
-    if metric_dir.exists():
-        for artifact_path in metric_dir.iterdir():
-            if not artifact_path.is_file():
-                continue
-            match = pattern.match(artifact_path.name)
-            if match:
-                run_numbers.append(int(match.group(1)))
-
-    if not run_numbers:
-        return 1
-
-    return max(run_numbers) + 1
-
-
 def save_model_selection_gate(
     metric_dir: Path,
     dataset_name: str,
+    experiment_id: str,
     settings: SelectionGateSettings,
+    model_artifacts: Mapping[str, Any] | None = None,
     bootstrap_payload: Mapping[str, Any] | None = None,
     bootstrap_json_path: Path | None = None,
 ) -> tuple[Path, dict[str, Any]]:
@@ -169,21 +147,36 @@ def save_model_selection_gate(
         bootstrap_payload=bootstrap_payload,
         settings=settings,
     )
-    run_number = find_next_model_selection_run_number(
-        metric_dir=metric_dir,
-        dataset_name=dataset_name,
-        outcome=settings.outcome,
-    )
+    champion_policy = str(selection_result["champion_policy"])
+    champion_model_artifact = model_artifacts.get(champion_policy)
+
+    if not isinstance(champion_model_artifact, Mapping):
+        raise ValueError(
+            "Missing model provenance for selected champion"
+            f" '{champion_policy}'."
+        )
+    if champion_model_artifact.get("policy_name") != champion_policy:
+        raise ValueError(
+            "Selected champion policy does not match its model provenance."
+        )
+
     output_path = metric_dir / (
-        f"{dataset_name}_{settings.outcome}_{MODEL_SELECTION_ARTIFACT_NAME}_"
-        f"run{run_number:02d}.json"
+        f"{dataset_name}_{settings.outcome}_{experiment_id}_"
+        f"{MODEL_SELECTION_ARTIFACT_NAME}.json"
     )
+    if output_path.exists():
+        raise FileExistsError(
+            "Selection Gate artifact already exists for experiment"
+            f"'{experiment_id}' and cannot be overwritten: {output_path}"
+        )
     payload = {
         "artifact_type": MODEL_SELECTION_ARTIFACT_NAME,
+        "experiment_id": experiment_id,
         "dataset_name": dataset_name,
         "bootstrap_artifact": (
             bootstrap_json_path.name if bootstrap_json_path is not None else None
         ),
+        "champion_model_artifact": dict(champion_model_artifact),
         **selection_result,
     }
 

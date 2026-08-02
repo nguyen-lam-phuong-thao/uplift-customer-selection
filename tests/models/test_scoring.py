@@ -116,6 +116,74 @@ def test_x_learner_scoring_uses_exact_model_uris(monkeypatch) -> None:
     assert scores.tolist() == pytest.approx([0.5, 0.5])
 
 
+@pytest.mark.parametrize(
+    ("policy", "model_artifact"),
+    [
+        (
+            "treated_response_lgbm",
+            {
+                "model_kind": "response",
+                "mlflow_run_id": "run-001",
+                "model_uri": "runs:/run-999/model",
+            },
+        ),
+        (
+            "t_learner_lgbm",
+            {
+                "model_kind": "t_learner",
+                "mlflow_run_id": "run-002",
+                "treatment_model_uri": (
+                    "runs:/run-002/treatment_model"
+                ),
+                "control_model_uri": (
+                    "runs:/run-999/control_model"
+                ),
+            },
+        ),
+        (
+            "x_learner_lgbm",
+            {
+                "model_kind": "x_learner",
+                "mlflow_run_id": "run-003",
+                "treatment_effect_model_uri": (
+                    "runs:/run-003/tau1_model"
+                ),
+                "control_effect_model_uri": (
+                    "runs:/run-999/tau0_model"
+                ),
+                "constant_treatment_rate_weight": 0.25,
+            },
+        ),
+    ],
+)
+def test_scoring_rejects_model_uri_from_different_run(
+    policy,
+    model_artifact,
+    monkeypatch,
+) -> None:
+    """Every model URI must belong to the declared MLflow run."""
+
+    def fail_load_model(model_uri: str):
+        raise AssertionError(
+            "MLflow must not load a model with mismatched provenance."
+        )
+
+    monkeypatch.setattr(
+        scoring.mlflow.lightgbm,
+        "load_model",
+        fail_load_model,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must belong to mlflow_run_id",
+    ):
+        scoring.build_policy_score_batch(
+            policy=policy,
+            model_artifact=model_artifact,
+        )
+        
+
 def test_scoring_fails_without_mlflow_run_id() -> None:
     """Missing run provenance fails before model loading."""
     with pytest.raises(ValueError, match="mlflow_run_id"):
