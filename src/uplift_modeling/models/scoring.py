@@ -48,10 +48,10 @@ def validate_model_artifact_identity(
 ) -> str:
     """Validate model provenance identity and return its supported model kind."""
     artifact_type = model_artifact.get("artifact_type")
-    if artifact_type is not None and artifact_type != "model_provenance":
+    if artifact_type != "model_provenance":
         raise ValueError(
             "Model artifact metadata for policy "
-            f"'{policy}' has unsupported artifact_type "
+            f"'{policy}' has missing or unsupported artifact_type "
             f"{artifact_type!r}."
         )
     policy_name = _require_string(model_artifact, "policy_name", policy)

@@ -5,7 +5,6 @@ from uplift_modeling.evaluation.bootstrap import DEFAULT_N_BOOTSTRAP
 from uplift_modeling.evaluation.bootstrap_summary import (
     calculate_bootstrap_policy_rows,
 )
-from uplift_modeling.evaluation.locked_test import save_locked_test_evaluation
 from uplift_modeling.evaluation.selection_gate import (
     SelectionGateSettings,
     select_champion_from_bootstrap_payload,
@@ -37,7 +36,6 @@ __all__ = [
     "calculate_selected_incremental_outcome",
     "calculate_topk_policy_metrics",
     "calculate_uplift_metrics",
-    "save_locked_test_evaluation",
     "save_model_selection_gate",
     "select_champion_from_bootstrap_payload",
     "SelectionGateSettings",

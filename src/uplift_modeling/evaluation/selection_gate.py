@@ -285,8 +285,42 @@ def _build_explanation_rows(
         if policy == settings.baseline_policy:
             continue
 
-        mean_delta = _finite_number(row["mean_delta"], "mean_delta", row)
-        ci_lower = _finite_number(row["ci_lower"], "ci_lower", row)
+        n_valid_bootstrap = row.get("n_valid_bootstrap")
+        if (
+            not isinstance(n_valid_bootstrap, int)
+            or isinstance(n_valid_bootstrap, bool)
+            or n_valid_bootstrap < 0
+        ):
+            raise ValueError(
+                "Bootstrap field 'n_valid_bootstrap' must be an integer "
+                f"greater than or equal to zero for policy '{policy}'. "
+                f"Received: {n_valid_bootstrap!r}."
+            )
+        if "n_bootstrap" in row:
+            n_bootstrap = row.get("n_bootstrap")
+            if not isinstance(n_bootstrap, int) or isinstance(n_bootstrap, bool):
+                raise ValueError(
+                    "Bootstrap field 'n_bootstrap' must be an integer for "
+                    f"policy '{policy}'. Received: {n_bootstrap!r}."
+                )
+            if n_valid_bootstrap > n_bootstrap:
+                raise ValueError(
+                    "Bootstrap field 'n_valid_bootstrap' must be less than "
+                    "or equal to 'n_bootstrap' for policy "
+                    f"'{policy}'. Received: {n_valid_bootstrap} valid "
+                    f"samples out of {n_bootstrap} bootstrap samples."
+                )
+
+        if n_valid_bootstrap == 0:
+            mean_delta = None
+            ci_lower = None
+            ci_upper = None
+            passed_selection_gate = False
+        else:
+            mean_delta = _finite_number(row["mean_delta"], "mean_delta", row)
+            ci_lower = _finite_number(row["ci_lower"], "ci_lower", row)
+            ci_upper = row.get("ci_upper")
+            passed_selection_gate = ci_lower > 0.0
         explanation_rows.append(
             {
                 "policy": policy,
@@ -297,8 +331,8 @@ def _build_explanation_rows(
                 "metric": settings.metric,
                 "mean_delta": mean_delta,
                 "ci_lower": ci_lower,
-                "ci_upper": row.get("ci_upper"),
-                "passed_selection_gate": ci_lower > 0.0,
+                "ci_upper": ci_upper,
+                "passed_selection_gate": passed_selection_gate,
                 "is_champion": False,
                 "selection_reason": None,
             }
@@ -341,6 +375,8 @@ def _explain_policy_row(
             "among passing policies, with alphabetical policy name as the "
             "deterministic tie-break."
         )
+    if row["mean_delta"] is None:
+        return "Not selected because no valid bootstrap samples were available."
     if champion_policy == fallback_policy:
         return "Not selected because ci_lower <= 0."
     if bool(row["passed_selection_gate"]):

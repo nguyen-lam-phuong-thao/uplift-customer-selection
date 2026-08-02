@@ -358,7 +358,7 @@ def save_locked_test_evaluation_artifact(
     return output_path, payload
 
 
-def save_locked_test_evaluation(
+def _save_locked_test_evaluation(
     manifest_prediction_paths: Mapping[str, Path],
     metric_dir: Path,
     dataset_name: str,

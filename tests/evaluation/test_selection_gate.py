@@ -40,6 +40,7 @@ def _row(
         "ci_lower": ci_lower,
         "ci_upper": mean_delta + 0.02,
         "n_bootstrap": 1000,
+        "n_valid_bootstrap": 1000,
         "random_seed": 42,
     }
 

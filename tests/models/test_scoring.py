@@ -42,6 +42,7 @@ def test_response_model_scoring_uses_exact_model_uri(monkeypatch) -> None:
     score_batch = scoring.build_policy_score_batch(
         policy="treated_response_lgbm",
         model_artifact={
+            "artifact_type": "model_provenance",
             "policy_name": "treated_response_lgbm",
             "model_kind": "response",
             "mlflow_run_id": "run-001",
@@ -71,6 +72,7 @@ def test_t_learner_scoring_uses_exact_model_uris(monkeypatch) -> None:
     score_batch = scoring.build_policy_score_batch(
         policy="t_learner_lgbm",
         model_artifact={
+            "artifact_type": "model_provenance",
             "policy_name": "t_learner_lgbm",
             "model_kind": "t_learner",
             "mlflow_run_id": "run-002",
@@ -104,6 +106,7 @@ def test_x_learner_scoring_uses_exact_model_uris(monkeypatch) -> None:
     score_batch = scoring.build_policy_score_batch(
         policy="x_learner_lgbm",
         model_artifact={
+            "artifact_type": "model_provenance",
             "policy_name": "x_learner_lgbm",
             "model_kind": "x_learner",
             "mlflow_run_id": "run-003",
@@ -125,6 +128,7 @@ def test_x_learner_scoring_uses_exact_model_uris(monkeypatch) -> None:
         (
             "treated_response_lgbm",
             {
+                "artifact_type": "model_provenance",
                 "policy_name": "treated_response_lgbm",
                 "model_kind": "response",
                 "mlflow_run_id": "run-001",
@@ -134,6 +138,7 @@ def test_x_learner_scoring_uses_exact_model_uris(monkeypatch) -> None:
         (
             "t_learner_lgbm",
             {
+                "artifact_type": "model_provenance",
                 "policy_name": "t_learner_lgbm",
                 "model_kind": "t_learner",
                 "mlflow_run_id": "run-002",
@@ -148,6 +153,7 @@ def test_x_learner_scoring_uses_exact_model_uris(monkeypatch) -> None:
         (
             "x_learner_lgbm",
             {
+                "artifact_type": "model_provenance",
                 "policy_name": "x_learner_lgbm",
                 "model_kind": "x_learner",
                 "mlflow_run_id": "run-003",
@@ -196,6 +202,7 @@ def test_scoring_fails_without_mlflow_run_id() -> None:
         scoring.build_policy_score_batch(
             policy="treated_response_lgbm",
             model_artifact={
+                "artifact_type": "model_provenance",
                 "policy_name": "treated_response_lgbm",
                 "model_kind": "response",
                 "model_uri": "runs:/run-001/model",
@@ -209,6 +216,7 @@ def test_scoring_fails_for_unsupported_model_kind() -> None:
         scoring.build_policy_score_batch(
             policy="unknown_policy",
             model_artifact={
+                "artifact_type": "model_provenance",
                 "policy_name": "unknown_policy",
                 "model_kind": "unknown_learner",
                 "mlflow_run_id": "run-004",
@@ -222,6 +230,7 @@ def test_scoring_fails_for_incomplete_model_metadata() -> None:
         scoring.build_policy_score_batch(
             policy="t_learner_lgbm",
             model_artifact={
+                "artifact_type": "model_provenance",
                 "policy_name": "t_learner_lgbm",
                 "model_kind": "t_learner",
                 "mlflow_run_id": "run-005",
@@ -236,6 +245,7 @@ def test_x_learner_scoring_fails_for_incomplete_model_metadata() -> None:
         scoring.build_policy_score_batch(
             policy="x_learner_lgbm",
             model_artifact={
+                "artifact_type": "model_provenance",
                 "policy_name": "x_learner_lgbm",
                 "model_kind": "x_learner",
                 "mlflow_run_id": "run-006",

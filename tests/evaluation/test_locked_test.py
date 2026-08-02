@@ -8,8 +8,8 @@ import pytest
 
 from uplift_modeling.evaluation.bootstrap_config import BOOTSTRAP_METRICS
 from uplift_modeling.evaluation.locked_test import (
+    _save_locked_test_evaluation,
     get_champion_policy,
-    save_locked_test_evaluation,
 )
 from uplift_modeling.evaluation.topk_policy import TOPK_BUDGET_FRACTIONS
 from uplift_modeling.evaluation.uplift_metrics import (
@@ -144,7 +144,7 @@ def test_locked_test_evaluates_only_champion(tmp_path) -> None:
         "x_learner_lgbm",
     )
 
-    output_path, payload = save_locked_test_evaluation(
+    output_path, payload = _save_locked_test_evaluation(
         manifest_prediction_paths=_manifest_paths(
             baseline_path,
             champion_path,
@@ -258,7 +258,7 @@ def test_locked_test_aligns_reordered_prediction_rows_by_row_id(tmp_path) -> Non
         ascending=False,
     ).to_parquet(champion_path, index=False)
 
-    _, payload = save_locked_test_evaluation(
+    _, payload = _save_locked_test_evaluation(
         manifest_prediction_paths=_manifest_paths(champion_path),
         metric_dir=metric_dir,
         dataset_name="criteo",
@@ -285,7 +285,7 @@ def test_locked_test_fails_if_champion_test_predictions_are_missing(tmp_path) ->
     )
 
     with pytest.raises(ValueError, match="t_learner_lgbm test predictions"):
-        save_locked_test_evaluation(
+        _save_locked_test_evaluation(
             manifest_prediction_paths=_manifest_paths(champion_path),
             metric_dir=metric_dir,
             dataset_name="criteo",
@@ -304,7 +304,7 @@ def test_locked_test_fails_if_champion_prediction_artifact_is_missing(
     selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
 
     with pytest.raises(ValueError, match="Champion prediction artifact"):
-        save_locked_test_evaluation(
+        _save_locked_test_evaluation(
             manifest_prediction_paths={},
             metric_dir=metric_dir,
             dataset_name="criteo",
@@ -327,7 +327,7 @@ def test_locked_test_ignores_newer_unlisted_prediction_artifact(tmp_path) -> Non
     newer_frame["score"] = 0.0
     newer_frame.to_parquet(newer_champion_path, index=False)
 
-    _, payload = save_locked_test_evaluation(
+    _, payload = _save_locked_test_evaluation(
         manifest_prediction_paths=_manifest_paths(champion_path),
         metric_dir=metric_dir,
         dataset_name="criteo",

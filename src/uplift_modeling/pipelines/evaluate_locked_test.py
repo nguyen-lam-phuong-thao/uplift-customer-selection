@@ -29,11 +29,11 @@ from uplift_modeling.evaluation.bootstrap_config import (
     DEFAULT_N_BOOTSTRAP,
 )
 from uplift_modeling.evaluation.locked_test import (
+    _save_locked_test_evaluation,
     build_locked_test_evaluation_path,
     build_locked_test_prediction_path,
     load_selection_gate_payload,
     load_existing_locked_test_evaluation,
-    save_locked_test_evaluation,
     validate_selection_gate_payload,
 )
 from uplift_modeling.models.scoring import build_policy_score_batch
@@ -443,7 +443,7 @@ def evaluate_locked_test(
         batch_size=int(training_config["prediction_batch_size"]),
     )
 
-    output_path, _ = save_locked_test_evaluation(
+    output_path, _ = _save_locked_test_evaluation(
         manifest_prediction_paths=locked_test_prediction_paths,
         metric_dir=metric_dir,
         dataset_name=dataset_name,
