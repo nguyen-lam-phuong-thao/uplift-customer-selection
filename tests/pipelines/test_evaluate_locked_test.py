@@ -466,3 +466,40 @@ def test_locked_test_rejects_mismatched_outcome(
             selection_artifact_path=selection_path,
             outcome="visit",
         )
+
+
+def test_locked_test_rejects_config_different_from_manifest(
+    tmp_path,
+) -> None:
+    """Locked Test must use the config recorded in the manifest."""
+    data_path = _write_prepared_dataset(tmp_path)
+
+    manifest_config_path = _write_config(
+        tmp_path,
+        data_path,
+    )
+    manifest_path = _write_manifest(
+        tmp_path,
+        manifest_config_path,
+    )
+    selection_path = _write_selection_artifact(
+        tmp_path,
+        "t_learner_lgbm",
+    )
+
+    runtime_config_path = tmp_path / "other_config.yaml"
+    runtime_config_path.write_text(
+        manifest_config_path.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="config must match",
+    ):
+        pipeline.evaluate_locked_test(
+            config_path=runtime_config_path,
+            manifest_path=manifest_path,
+            selection_artifact_path=selection_path,
+            outcome="visit",
+        )

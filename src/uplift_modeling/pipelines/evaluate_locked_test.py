@@ -272,6 +272,34 @@ def evaluate_locked_test(
     }
 
     manifest = load_experiment_manifest(manifest_path)
+
+    manifest_config_value = manifest.get("config_path")
+
+    if not isinstance(manifest_config_value, str) or not manifest_config_value:
+        raise ValueError(
+            "Experiment manifest must contain a non-empty "
+            "'config_path'."
+        )
+
+    manifest_config_path = Path(
+        manifest_config_value
+    ).expanduser()
+
+    if not manifest_config_path.is_absolute():
+        manifest_config_path = (
+            project_root / manifest_config_path
+        ).resolve()
+    else:
+        manifest_config_path = manifest_config_path.resolve()
+
+    if manifest_config_path != config_path.resolve():
+        raise ValueError(
+            "Locked Test config must match the config recorded "
+            "in the experiment manifest. "
+            f"Runtime config: {config_path.resolve()}; "
+            f"manifest config: {manifest_config_path}."
+        )
+
     selection_experiment_id = selection_payload.get(
             "experiment_id"
     )
