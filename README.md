@@ -1,280 +1,350 @@
 # Customer Selection with Uplift Modeling
 
-This repository provides a reusable framework for customer selection using uplift modeling. The framework is designed to support reliable model development, evaluation, and deployment while remaining reusable across datasets, uplift models, and business scenarios.
+## Project Overview
 
-The primary objective is to produce **reliable, reproducible, and trustworthy customer-selection decisions**. Every experiment must follow the same standardized workflow for data preparation, model training, validation evaluation, statistical champion selection, and locked-test evaluation.
+This project provides a reusable framework for customer selection with uplift modeling.
 
-Core principles:
+The framework standardizes the entire workflow, including:
 
-- Reuse the framework across different datasets.
-- Integrate different uplift models through a common artifact and evaluation contract.
-- Evaluate every candidate with the same standardized protocol.
-- Prevent data leakage, inconsistent evaluation, and test-set reuse.
-- Produce artifacts that can be traced, audited, and reproduced.
-- Keep the current implementation simple; do not add full MLOps infrastructure before it is required.
+- Training uplift-model candidates.
+- Evaluating candidates on validation data.
+- Comparing models under identical evaluation settings.
+- Selecting a champion with a deterministic statistical rule.
+- Locking the selected champion before final test evaluation.
+- Preserving artifacts required to reproduce each experiment.
 
-The framework currently supports the Criteo Uplift Prediction Dataset. It is designed to be reused for RetailHero by replacing dataset-specific preparation and feature engineering while keeping the downstream training, evaluation, selection, and locked-test contracts unchanged.
+In short, the framework provides a consistent pipeline for training, evaluating, selecting, and validating uplift models. New datasets and models can be integrated through small, explicit contracts instead of modifying the core workflow.
 
-## Current Scope
+The framework is reusable, but trained models are not. Every dataset still requires its own data preparation, feature engineering, and model training.
 
-The current implementation provides the core workflow for reliable uplift-model evaluation and customer selection.
+---
 
-Implemented:
+# Purpose
 
-- Load and validate Criteo data.
-- Prepare reproducible decision datasets with a canonical `row_id`.
-- Create deterministic train, validation, and test splits.
-- Train a treated-response baseline, T-Learner, and X-Learner.
-- Log trained models and model components to MLflow.
-- Save validation-only prediction artifacts and model-provenance sidecars.
-- Align model predictions by `row_id` before comparison.
-- Evaluate targeting policies with Top-K metrics, policy value, Qini, and AUUC.
-- Estimate uncertainty with paired bootstrap resampling.
-- Select a champion through a deterministic statistical gate.
-- Reload the selected policy from MLflow and evaluate only that policy on the locked test split.
+Many uplift-modeling projects evolve into collections of independent training scripts, temporary prediction files, and manually selected experiment results. As the project grows, this makes experiments increasingly difficult to trust and reproduce.
 
-Framework hardening still to be completed:
+Common problems include:
 
-- Restrict the Selection Gate to deployable model candidates only.
-- Lock the champion to the exact MLflow `run_id` and model URI or component URIs used to create its validation predictions.
-- Make experiment manifests immutable and prevent models from unrelated experiment runs from being mixed.
-- Enforce a one-way transition from completed selection to locked-test evaluation for the same experiment.
-- Validate all artifact identities and provenance before final evaluation.
+- predictions matched to the wrong observations;
+- models evaluated under different settings;
+- inconsistent use of validation and test data;
+- stale artifacts mixed into new experiments;
+- champions that cannot be traced back to the exact model run;
+- results that cannot be reproduced reliably.
 
-These hardening items are part of the current framework work. Automated retraining, model registry workflows, online deployment, monitoring, and champion/challenger operations remain future MLOps extensions.
+This framework separates dataset-specific work from the shared evaluation pipeline. New datasets and models can be added without rewriting evaluation, bootstrap comparison, or champion selection.
 
-## Standardized Workflow
+---
+
+# Expected Users
+
+The framework is intended for data scientists who already have:
+
+- a treatment variable;
+- an outcome variable;
+- customer-level features;
+- train, validation, and test splits;
+- one or more uplift-model candidates.
+
+A typical workflow is:
+
+1. Prepare a dataset using the standard decision-dataset format.
+2. Choose an existing model or integrate a new one through the model contract.
+3. Configure the experiment.
+4. Run the shared training, evaluation, selection, and locked-test pipeline.
+
+The core evaluation logic should remain unchanged regardless of the dataset being used.
+
+---
+
+# Workflow
 
 ```text
-Dataset-specific preparation
+Dataset preparation
         ↓
 Standard decision dataset
         ↓
-Train deployable candidate models
+Train candidate models
         ↓
-Log exact model runs to MLflow
+Generate validation predictions
         ↓
-Write validation predictions and provenance
+Create experiment manifest
         ↓
-Create one experiment manifest
+Validation evaluation
         ↓
-Standardized validation evaluation
+Paired bootstrap comparison
         ↓
-Paired bootstrap uncertainty estimation
+Selection Gate
         ↓
-Deterministic statistical Selection Gate
+Lock champion
         ↓
-Lock exact champion identity
+Reload champion
         ↓
-Reload exact champion from MLflow
-        ↓
-Evaluate champion once on locked test
+Locked-test evaluation
         ↓
 Final evaluation artifact
 ```
 
-The flow is one-way:
+The workflow is strictly one-way:
 
 ```text
-Train → Validation → Selection Gate → Champion → Locked Test
+Train
+  ↓
+Validation evaluation
+  ↓
+Champion selection
+  ↓
+Champion locking
+  ↓
+Locked-test evaluation
 ```
 
-The test split must not influence training, early stopping, validation evaluation, bootstrap selection, or champion selection. After the champion is locked for an experiment, locked-test results must not be used to select a different champion for that same experiment.
+The locked test is used only once, after the champion has been selected from validation.
 
-The detailed normative workflow is documented in [`docs/framework_workflow.md`](docs/framework_workflow.md). Artifact contracts are documented in [`contracts/README.md`](contracts/README.md).
+---
 
-## Champion-Selection Rule
+# Integration Contracts
 
-Champion selection uses a deterministic statistical gate on **validation-only paired bootstrap contrasts**.
+The framework is organized around small, explicit integration contracts.
 
-For the configured primary outcome, split, budget, metric, and baseline:
+## Dataset Contract
 
-1. Consider deployable model candidates only.
-2. Compare every candidate with the configured baseline using paired bootstrap samples.
-3. A candidate passes only when its confidence-interval lower bound for the metric delta is greater than zero.
-4. Among passing candidates, select the candidate with the largest mean delta.
-5. Break an exact mean-delta tie deterministically by policy name.
-6. If no candidate passes, keep the baseline as champion.
-
-Bootstrap is therefore allowed to affect champion selection. The Selection Gate does not perform resampling itself; it consumes the standardized paired-contrast artifact produced by validation evaluation.
-
-`random_targeting` is an evaluation benchmark, not a deployable champion candidate.
-
-## Data Contract
-
-Prepared decision datasets must contain:
+Each dataset-preparation pipeline must produce a decision dataset containing:
 
 ```text
 row_id
 feature columns
 treatment
-one selected outcome
+outcome
 split
 ```
 
-For Criteo, the decision datasets are:
+The `row_id` must remain stable throughout the entire workflow, including prediction generation, evaluation, bootstrap comparison, champion selection, and locked-test reporting.
 
-```text
-data/processed/criteo/criteo_decision_visit.parquet
-data/processed/criteo/criteo_decision_conversion.parquet
-```
+Dataset-specific responsibilities include:
 
-They contain:
+- reading raw data;
+- cleaning and validation;
+- feature engineering;
+- defining treatment and outcome columns;
+- creating train, validation, and test splits.
 
-```text
-row_id
-f0 ... f11
-treatment
-visit or conversion
-split
-```
+---
 
-`exposure` is excluded because it is post-treatment and would create leakage risk.
+## Model Contract
 
-Current split policy:
+Each candidate model must:
 
-```text
-Train / validation / test = 60% / 20% / 20%
-```
+- train using the training split;
+- use validation only when required (for example, early stopping);
+- produce one uplift score per requested row;
+- preserve the corresponding `row_id`;
+- record the information required to reload the trained model.
 
-The split is stratified by treatment and the selected outcome. `row_id` is created once at the preparation boundary and must remain unchanged through training, prediction writing, evaluation, bootstrap, selection, and locked-test reporting.
+Existing models can be selected through configuration. Adding a new model should only require a small integration layer and must not require changes to evaluation or champion selection.
 
-## Models
+---
 
-The current deployable candidate models are:
+## Artifact Contract
 
-- `treated_response_lgbm`: a treated-group response-ranking baseline.
-- `t_learner_lgbm`: separate treatment and control outcome models.
-- `x_learner_lgbm`: outcome models, imputed treatment effects, and treatment-effect regressors.
+Every stage records enough metadata to trace both its inputs and outputs.
 
-Each training pipeline:
-
-- Reads the configured processed decision dataset;
-- Fits on `train`;
-- Uses `validation` for early stopping;
-- Writes predictions for `validation` only;
-- Logs the trained model or model components to MLflow;
-- Writes a provenance sidecar linking the prediction artifact to the MLflow run.
-
-The existing source filenames still include `criteo` and will be renamed only after the framework contracts and implementation are stable. Until then, current module names remain the supported entry points.
-
-## Current Pipeline Entry Points
-
-Train the candidate models:
-
-```bash
-python -m uplift_modeling.pipelines.train_criteo_response_model \
-  --config configs/modeling/criteo_response_lgbm.yaml \
-  --outcome visit
-
-python -m uplift_modeling.pipelines.train_criteo_t_learner \
-  --config configs/modeling/t_learner.yaml \
-  --outcome visit
-
-python -m uplift_modeling.pipelines.train_criteo_x_learner \
-  --config configs/modeling/x_learner.yaml \
-  --outcome visit
-```
-
-Create the current experiment manifest:
-
-```bash
-python -m uplift_modeling.pipelines.create_experiment_manifest \
-  --config configs/modeling/criteo_response_lgbm.yaml \
-  --outcome visit \
-  --experiment-id <experiment-id> \
-  --output artifacts/metrics/<experiment-id>_manifest.json
-```
-
-Run validation evaluation, bootstrap, and the Selection Gate:
-
-```bash
-python -m uplift_modeling.pipelines.evaluate_criteo_predictions \
-  --config configs/modeling/criteo_response_lgbm.yaml \
-  --manifest artifacts/metrics/<experiment-id>_manifest.json \
-  --outcome visit \
-  --n-bootstrap 100
-```
-
-Run locked-test scoring and final evaluation:
-
-```bash
-python -m uplift_modeling.pipelines.evaluate_locked_test \
-  --config configs/modeling/criteo_response_lgbm.yaml \
-  --manifest artifacts/metrics/<experiment-id>_manifest.json \
-  --selection-artifact artifacts/metrics/<selection-artifact>.json \
-  --outcome visit \
-  --n-bootstrap 100
-```
-
-The explicit `--experiment-id` and `--output` arguments are recommended because the current manifest creator otherwise uses a mutable `latest`-style default. The code-hardening stage will replace that temporary behavior with an immutable experiment contract.
-
-## Evaluation Outputs
-
-Validation evaluation produces standardized artifacts for:
-
-- Top-K targeting metrics at configured budget fractions;
-- Policy value;
-- Incremental outcome;
-- Qini and AUUC;
-- Paired bootstrap mean, standard deviation, and confidence intervals;
-- Paired contrasts against the configured baseline;
-- Deterministic Selection Gate output.
-
-Raw bootstrap samples are not required as persisted deliverables. Reproducibility depends on preserving the source artifacts, bootstrap count, random seed, evaluation settings, and exact code/config identity.
-
-Locked-test evaluation:
-
-- Loads only the locked champion;
-- Generates one test prediction artifact for that champion;
-- Computes final uplift and Top-K metrics from the same champion predictions;
-- Computes final bootstrap uncertainty without changing the champion;
-- Writes one final evaluation artifact.
-
-## Artifact Trust Model
-
-The intended artifact chain is:
+The artifact chain is:
 
 ```text
 Decision dataset
-    ↓
-Validation prediction + model provenance
-    ↓
+        ↓
+Validation predictions
+        ↓
 Experiment manifest
-    ↓
-Validation evaluation + paired bootstrap contrasts
-    ↓
-Champion artifact
-    ↓
-Locked-test prediction
-    ↓
+        ↓
+Validation metrics
+        ↓
+Bootstrap contrasts
+        ↓
+Champion-selection artifact
+        ↓
+Locked-test predictions
+        ↓
 Final evaluation artifact
 ```
 
-Every downstream artifact must identify its upstream source artifacts. The champion must ultimately be locked by exact model identity, not by policy name alone.
+Each artifact must be reproducible and linked to the experiment that created it.
 
-## Reuse for RetailHero
+---
 
-RetailHero must provide a dataset-specific adapter that creates the same standardized decision-dataset contract. It requires separate feature engineering and separate model training; a model trained on Criteo must never be used for RetailHero inference.
+# Current Model Candidates
 
-Expected reuse boundary:
+The current Criteo implementation includes:
+
+- `treated_response_lgbm`
+- `t_learner_lgbm`
+- `x_learner_lgbm`
+
+These models are used to validate the framework itself.
+
+`random_targeting` may be evaluated as a statistical benchmark, but it is **not** a deployable policy and must not be considered by the Selection Gate.
+
+---
+
+# Champion Selection
+
+Champion selection is performed **only on the validation split**.
+
+For the configured outcome, budget, metric, and baseline:
+
+1. Evaluate deployable candidate models only.
+2. Compare each candidate with the baseline using paired bootstrap contrasts.
+3. A candidate passes when the lower confidence bound of its metric delta is greater than zero.
+4. Among all passing candidates, choose the one with the largest mean delta.
+5. Break exact ties deterministically using the policy name.
+6. Keep the baseline if no candidate passes.
+
+The Selection Gate consumes the paired-bootstrap artifact. It does not perform bootstrap resampling itself.
+
+# Deliverables
+
+The framework is expected to produce the following outputs.
+
+## 1. Standard Decision Dataset
+
+Prepared datasets containing:
+
+- stable `row_id`;
+- model features;
+- treatment indicator;
+- selected outcome;
+- deterministic train, validation, and test splits.
+
+---
+
+## 2. Model Training Pipelines
+
+Training pipelines for the supported uplift models, including model logging and validation prediction generation.
+
+---
+
+## 3. Validation Prediction Artifacts
+
+Prediction files containing:
+
+- `row_id`;
+- evaluation split;
+- treatment and outcome values required for evaluation;
+- policy or model name;
+- predicted uplift score;
+- model provenance.
+
+---
+
+## 4. Validation Evaluation
+
+Standardized validation outputs, including:
+
+- Top-K targeting metrics;
+- policy value;
+- incremental outcome;
+- Qini;
+- AUUC;
+- paired-bootstrap confidence intervals;
+- paired contrasts against the configured baseline.
+
+---
+
+## 5. Champion-Selection Artifact
+
+An artifact recording:
+
+- the selected policy;
+- selection settings;
+- validation evidence;
+- the exact model identity required for reload;
+- the source experiment and upstream artifacts.
+
+---
+
+## 6. Locked-Test Evaluation
+
+A final evaluation produced **only** from the locked champion.
+
+The locked test reports final performance and must never be used to select or replace the champion.
+
+---
+
+## 7. Documentation and Tests
+
+Documentation and automated checks covering:
+
+- dataset contracts;
+- prediction and artifact schemas;
+- experiment identity;
+- validation/test isolation;
+- champion selection;
+- locked-test evaluation;
+- reproducible use of `row_id`.
+
+---
+
+# Current Status
+
+The first implementation targets the **Criteo Uplift Prediction Dataset**.
+
+The current workflow includes:
+
+- Criteo data preparation and validation;
+- stable `row_id` generation;
+- deterministic train, validation, and test splits;
+- treated-response, T-Learner, and X-Learner training pipelines;
+- MLflow model logging;
+- validation prediction artifacts;
+- prediction alignment by `row_id`;
+- standardized uplift evaluation;
+- paired bootstrap comparison;
+- a deterministic Selection Gate;
+- a separate locked-test evaluation pipeline.
+
+The project is currently in the framework-hardening stage.
+
+Current priorities are:
+
+- ensuring each experiment uses one consistent set of artifacts;
+- validating prediction and evaluation schemas;
+- linking the champion to the exact model run that produced its validation predictions;
+- preventing anything other than the locked champion from entering final evaluation;
+- keeping the documentation aligned with the implementation.
+
+Current filenames still contain dataset-specific names such as `criteo`. Renaming modules will be handled after the framework contracts are finalized to avoid unnecessary changes during hardening.
+
+---
+
+# Reusing the Framework
+
+Each dataset requires its own preparation and feature-engineering pipeline.
+
+For example:
 
 ```text
-Criteo preparation ─────┐
-                       ├─→ Standard decision dataset
-RetailHero preparation ┘              ↓
-                              Shared training contract
-                                      ↓
-                              Shared evaluation contract
-                                      ↓
-                              Shared selection contract
-                                      ↓
-                              Shared locked-test contract
+Criteo preparation ──────┐
+                         ├──→ Standard decision dataset
+RetailHero preparation ──┘               ↓
+                                  Shared model contract
+                                           ↓
+                                Shared evaluation
+                                           ↓
+                                 Shared selection
+                                           ↓
+                               Locked-test evaluation
 ```
 
-If RetailHero requires copying or rewriting the downstream evaluation and selection pipeline, the framework is not yet reusable enough.
+The reusable part is the workflow—not the trained model.
 
-## Repository Structure
+A model trained on Criteo must not be used directly on RetailHero or another unrelated dataset.
+
+The framework is considered reusable when a new dataset can be integrated without rewriting the downstream evaluation, bootstrap, selection, or locked-test logic.
+
+---
+
+# Temporary Repository Structure
 
 ```text
 .
@@ -307,20 +377,42 @@ If RetailHero requires copying or rewriting the downstream evaluation and select
 └── README.md
 ```
 
-Generated datasets, prediction artifacts, metrics, figures, MLflow databases, local environments, and temporary files must not be committed.
+This structure is temporary and may be simplified once the framework contracts and entry points are finalized.
 
-## Documentation Authority
+Generated datasets, model artifacts, predictions, metrics, figures, local MLflow databases, environments, and temporary files should not be committed to the repository.
 
-For framework behavior, use the following order of authority:
+---
 
-1. [`docs/framework_workflow.md`](docs/framework_workflow.md) — normative workflow and stage invariants.
-2. [`contracts/README.md`](contracts/README.md) — artifact and identity contracts.
-3. `configs/` — supported configuration values and defaults.
-4. This README — project overview and operating guide.
-5. Historical weekly notes — context only, not current implementation requirements.
+# Next Development Steps
 
-Coding rules are documented in [`docs/code_rules.md`](docs/code_rules.md).
+The next stage focuses on:
 
-## Long-Term Vision
+1. Completing the remaining framework-hardening tasks.
+2. Aligning the documentation with the implemented behavior.
+3. Removing obsolete and duplicated code once the workflow is stable.
+4. Finalizing dataset, model, artifact, and experiment contracts.
+5. Improving configuration-driven execution so supported models can be added without changing the core framework.
+6. Integrating RetailHero through a separate dataset adapter.
+7. Verifying that downstream evaluation can be reused without copying Criteo-specific code.
 
-Future work may extend the framework into a complete MLOps lifecycle with automated retraining, model registry workflows, deployment, monitoring, champion/challenger management, and continuous improvement. Those capabilities are outside the current core scope and must not be introduced prematurely at the cost of a simple, auditable evaluation pipeline.
+Future extensions may include automated retraining, online serving, production monitoring, model registry operations, and champion/challenger automation. These are outside the scope of the current project.
+
+---
+
+# References
+
+The framework design is informed by established work in uplift modeling, statistical model evaluation, and reproducible machine learning workflows.
+
+1. **Gutierrez, P., & Gérardy, J.-Y. (2017).** *Causal Inference and Uplift Modelling: A Review of the Literature.* Proceedings of the International Conference on Predictive Applications and APIs (PAPIs).
+   - Provides a comprehensive review of uplift-modeling methods, evaluation metrics, and practical applications.
+
+2. **Zhao, Y., Fang, X., & Simchi-Levi, D. (2017).** *Uplift Modeling with Multiple Treatments and General Response Types.* Proceedings of the SIAM International Conference on Data Mining (SDM).
+   - Introduces a general framework for uplift modeling and discusses policy-oriented evaluation.
+
+3. **Raschka, S. (2018).** *Model Evaluation, Model Selection, and Algorithm Selection in Machine Learning.* arXiv:1811.12808.
+   - Reviews best practices for train/validation/test separation, statistical comparison, and reproducible model selection.
+
+4. **Savvides, C., et al. (2023).** *Model Selection with Bootstrap Validation.* Statistical Analysis and Data Mining.
+   - Describes bootstrap-based approaches for estimating uncertainty during model selection.
+
+These references provide the statistical and methodological background for the framework. The implementation itself is an engineering framework that combines these established principles into a reproducible workflow for training, evaluating, selecting, and validating uplift models.
