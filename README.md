@@ -73,6 +73,13 @@ The test split must not influence training, validation evaluation, bootstrap com
 
 ---
 
+## Installation
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install -e .
+
+
 ## Run a Validation Experiment
 
 The main entry point runs the three currently supported candidate pipelines, creates the manifest from the exact prediction artifacts just produced, evaluates them, and selects a champion:

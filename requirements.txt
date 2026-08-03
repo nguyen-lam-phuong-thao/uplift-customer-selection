@@ -8,6 +8,5 @@ jupyter>=1.1,<2.0
 ipykernel>=6.29,<8.0
 pyyaml>=6.0,<7.0
 mlflow
-dagshub
 pytest
 scikit-uplift>=0.5

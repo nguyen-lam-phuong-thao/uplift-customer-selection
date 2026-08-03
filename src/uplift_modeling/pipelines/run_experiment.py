@@ -26,7 +26,7 @@ from uplift_modeling.utils.config import (
 
 LOGGER = logging.getLogger(__name__)
 
-SHARED_CONFIG_SECTION = (
+SHARED_CONFIG_SECTIONS = (
     "project",
     "data",
     "training",
@@ -89,15 +89,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def validate_shared_config_sections(configs_paths: tuple[Path, ...],) -> None:
+def validate_shared_config_sections(config_paths: tuple[Path, ...],) -> None:
     """Require candidate configs to describe the same experiment context."""
-    configs = [(config_path, load_yaml_config(config_path)) for config_path in configs_paths]
+    configs = [(config_path, load_yaml_config(config_path)) for config_path in config_paths]
     reference_path, reference_config = configs[0]
 
     for config_path, config in configs[1:]:
         mismatched_sections = [
             section
-            for section in SHARED_CONFIG_SECTION
+            for section in SHARED_CONFIG_SECTIONS
             if config.get(section) != reference_config.get(section)
         ]
 
