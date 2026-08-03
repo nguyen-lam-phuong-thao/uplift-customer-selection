@@ -10,9 +10,9 @@
 
 ## Week 3 objectives
 
-* [ ] Hoàn thiện framework trong thứ Hai và thứ Ba.
-* [ ] Chạy thành công toàn bộ workflow trên Criteo.
-* [ ] Đồng bộ code, tests, config và documentation.
+* [X] Hoàn thiện framework trong thứ Hai và thứ Ba.
+* [X] Chạy thành công toàn bộ workflow trên Criteo.
+* [X] Đồng bộ code, tests, config và documentation.
 * [ ] Bắt đầu tích hợp RetailHero từ thứ Tư.
 * [ ] Hoàn thành data understanding và feature engineering cơ bản.
 * [ ] Tạo RetailHero decision dataset.

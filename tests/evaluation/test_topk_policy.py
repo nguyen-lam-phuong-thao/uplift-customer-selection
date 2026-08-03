@@ -91,7 +91,7 @@ def test_calculate_topk_policy_metrics_uses_none_when_one_arm_selected() -> None
     assert metrics["incremental_outcome_per_1k"] is None
 
 
-def test_missing_optional_policy_artifacts_do_not_crash(tmp_path) -> None:
+def test_topk_evaluation_runs_with_one_manifest_policy(tmp_path) -> None:
     """Top-K evaluation runs when only one expected policy artifact exists."""
     prediction_dir = tmp_path / "predictions"
     metric_dir = tmp_path / "metrics"
@@ -116,7 +116,7 @@ def test_missing_optional_policy_artifacts_do_not_crash(tmp_path) -> None:
     assert {row["split"] for row in payload["table_rows"]} == {"validation"}
     assert "t_learner_lgbm" in payload["evaluated_policy_names"]
     assert "random_targeting" in payload["evaluated_policy_names"]
-    assert payload["warnings"]
+    assert payload["warnings"] == []
 
 
 def test_topk_policy_evaluation_rejects_test_split_request(tmp_path) -> None:
@@ -172,19 +172,24 @@ def test_topk_policy_evaluation_ignores_newer_unlisted_prediction(tmp_path) -> N
     }
 
 
-def test_topk_policy_rejects_ambiguous_policy_aliases(tmp_path) -> None:
-    """A manifest cannot provide two entries for one logical policy."""
-    first_path = tmp_path / "pooled.parquet"
-    second_path = tmp_path / "response.parquet"
+def test_topk_policy_uses_exact_manifest_policy_mapping(tmp_path) -> None:
+    """Evaluation accepts the exact policies listed in the manifest."""
+    custom_model_path = tmp_path / "custom_model.parquet"
+    t_learner_path = tmp_path / "t_learner.parquet"
 
-    with pytest.raises(ValueError, match="ambiguous"):
-        resolve_expected_policy_paths(
-            manifest_prediction_paths={
-                "pooled_response_lgbm": first_path,
-                "response_lgbm": second_path,
-            },
-            outcome="visit",
-        )
+    policy_paths, warnings = resolve_expected_policy_paths(
+        manifest_prediction_paths={
+            "custom_uplift_model": custom_model_path,
+            "t_learner_lgbm": t_learner_path,
+        },
+        outcome="visit",
+    )
+
+    assert policy_paths == {
+        "custom_uplift_model": custom_model_path,
+        "t_learner_lgbm": t_learner_path,
+    }
+    assert warnings == []
 
 
 def test_calculate_topk_policy_rows_rejects_test_split() -> None:

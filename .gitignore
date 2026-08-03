@@ -36,7 +36,7 @@ artifacts/figures/*
 !artifacts/figures/.gitkeep
 artifacts/metrics/*
 !artifacts/metrics/.gitkeep
-artifacts/predictions/*.parquet
+artifacts/predictions/
 
 
 # OS and editor files

@@ -1,93 +1,112 @@
 # Framework Workflow and Invariants
 
-This document is the normative technical description of the current Customer Selection with Uplift Modeling framework.
+This document defines the current workflow and required invariants of the Customer Selection with Uplift Modeling framework.
 
-It defines:
-
-- The intended end-to-end experiment flow;
-- The responsibility of each pipeline stage;
-- The allowed use of train, validation, and test data;
-- The deterministic statistical champion-selection rule;
-- The artifact identities that must be preserved;
-- The known implementation gaps that the next code changes must close.
-
-The current source filenames still contain `criteo`. Renaming them is intentionally deferred until the framework behavior and contracts are stable.
+The current source filenames still contain `criteo`. Renaming is deferred until the framework has been verified with another dataset.
 
 ## 1. Project Goal
 
-The framework must produce customer-targeting decisions that are:
+The framework provides a consistent and traceable process for:
 
-- Reliable;
-- Reproducible;
-- Trustworthy;
-- Traceable;
-- Auditable;
-- Reusable across datasets and supported uplift models.
+* Training uplift-model candidates.
+* Comparing candidates on validation data.
+* Selecting one champion.
+* Locking the exact selected model.
+* Evaluating the champion separately on test.
+* Reusing the downstream workflow with another dataset.
 
-Criteo is the current development dataset. RetailHero will provide a separate preparation and feature-engineering layer while reusing the downstream framework contracts.
+Criteo is the current framework-validation dataset. RetailHero will use separate preparation and feature-engineering logic while reusing the downstream contracts.
 
-## 2. End-to-End Flow
+---
+
+## 2. End-to-End Workflow
+
+### Validation experiment
 
 ```text
-Raw dataset
-    ↓
-Dataset-specific validation and preparation
-    ↓
+Dataset-specific preparation
+        ↓
 Standard decision dataset
-    ↓
-Train deployable candidate models
-    ↓
-Log exact trained model runs to MLflow
-    ↓
-Write validation predictions and model provenance
-    ↓
-Create one experiment manifest
-    ↓
-Standardized validation evaluation
-    ↓
-Paired bootstrap uncertainty estimation
-    ↓
-Deterministic statistical Selection Gate
-    ↓
-Lock exact champion identity
-    ↓
+        ↓
+Train deployable candidates
+        ↓
+Log exact model runs to MLflow
+        ↓
+Write validation predictions and provenance
+        ↓
+Create exact experiment manifest
+        ↓
+Validation evaluation
+        ↓
+Paired bootstrap
+        ↓
+Selection Gate
+        ↓
+Champion-selection artifact
+```
+
+### Final evaluation
+
+```text
+Champion-selection artifact
+        ↓
+Validate manifest and champion identity
+        ↓
 Reload exact champion from MLflow
-    ↓
-Generate champion-only locked-test predictions
-    ↓
+        ↓
+Generate champion-only test predictions
+        ↓
 Final locked-test evaluation
 ```
 
-The experiment lifecycle is one-way:
+Validation and locked test are separate pipeline stages.
+
+---
+
+## 3. Main Entry Points
+
+### Full validation experiment
 
 ```text
-TRAINED
-    ↓
-VALIDATION_EVALUATED
-    ↓
-CHAMPION_SELECTED
-    ↓
-CHAMPION_LOCKED
-    ↓
-FINAL_EVALUATED
+src/uplift_modeling/pipelines/run_experiment.py
 ```
 
-The current implementation does not yet persist these lifecycle states explicitly. The next code changes must enforce the same one-way behavior through immutable artifacts and identity validation without introducing an unnecessary workflow service or database state machine.
+Example:
 
-## 3. Stage 1 — Dataset-Specific Preparation
+```bash
+python -m uplift_modeling.pipelines.run_experiment \
+  --experiment-id criteo-visit-001 \
+  --outcome visit
+```
 
-### Responsibility
+The runner:
 
-Convert raw dataset-specific inputs into the shared decision-dataset contract.
+1. Validates shared candidate configuration sections.
+2. Trains the current candidate models.
+3. Receives the exact prediction path from each training pipeline.
+4. Creates the experiment manifest from those exact paths.
+5. Runs validation evaluation.
+6. Runs paired bootstrap.
+7. Runs the Selection Gate.
+8. Stops before locked test.
 
-### Criteo output
+### Locked-test evaluation
 
 ```text
-data/processed/criteo/criteo_decision_visit.parquet
-data/processed/criteo/criteo_decision_conversion.parquet
+src/uplift_modeling/pipelines/evaluate_locked_test.py
 ```
 
-### Required columns
+This stage is run explicitly after champion selection.
+
+### Debug entry points
+
+Individual training, manifest-creation, and validation-evaluation pipelines remain available for debugging.
+
+---
+
+## 4. Dataset Preparation
+
+Each dataset-specific preparation pipeline must produce:
 
 ```text
 row_id
@@ -97,7 +116,19 @@ one selected outcome
 split
 ```
 
-For Criteo:
+### Required invariants
+
+* `row_id` is created once during preparation.
+* `row_id` is non-null and unique.
+* `row_id` remains unchanged downstream.
+* Train, validation, and test rows are disjoint.
+* Split creation is deterministic.
+* Features must not contain post-treatment information.
+* Shared framework code must not depend on raw dataset structure.
+
+### Criteo
+
+Current Criteo decision datasets contain:
 
 ```text
 row_id
@@ -107,39 +138,31 @@ visit or conversion
 split
 ```
 
-### Invariants
+`exposure` is excluded because it occurs after treatment.
 
-- `row_id` is created once at the preparation boundary.
-- `row_id` is non-null and unique within the prepared dataset.
-- `row_id` does not depend on dataframe index after preparation.
-- `row_id` must be preserved unchanged by every downstream stage.
-- `exposure` is excluded because it is post-treatment.
-- Split assignment is deterministic for the same input and configuration.
-- Train, validation, and test rows are disjoint.
-
-### Split policy
+Current split:
 
 ```text
-train      = 60%
-validation = 20%
-test       = 20%
+train      60%
+validation 20%
+test       20%
 ```
 
 The split is stratified by treatment and the selected outcome.
 
-## 4. Stage 2 — Candidate Model Training
+---
 
-### Current entry points
+## 5. Candidate Training
+
+Current training entry points:
 
 ```text
-src/uplift_modeling/pipelines/train_criteo_response_model.py
-src/uplift_modeling/pipelines/train_criteo_t_learner.py
-src/uplift_modeling/pipelines/train_criteo_x_learner.py
+train_criteo_response_model.py
+train_criteo_t_learner.py
+train_criteo_x_learner.py
 ```
 
-These filenames remain unchanged during the current refactor.
-
-### Deployable candidates
+Current deployable policies:
 
 ```text
 treated_response_lgbm
@@ -147,47 +170,28 @@ t_learner_lgbm
 x_learner_lgbm
 ```
 
-### Required behavior
-
 Each training pipeline must:
 
-1. Read one standardized decision dataset;
-2. Fit using `split == train`;
-3. Use `split == validation` for early stopping when required;
-4. Never read test labels or test features for fitting, early stopping, tuning, or candidate comparison;
-5. Log the exact trained model or model components to MLflow;
-6. Write predictions for validation only;
-7. Write model provenance linking the validation prediction artifact to the exact MLflow run.
-
-### Model semantics
-
-#### Treated-response baseline
-
-Fit on treated training rows and rank all validation rows by predicted treated response.
+1. Read one standard decision dataset.
+2. Fit on `split == train`.
+3. Use validation only where required for fitting or early stopping.
+4. Never read test data during training or candidate comparison.
+5. Log the trained model or model components to MLflow.
+6. Write validation predictions only.
+7. Write model provenance.
+8. Return:
 
 ```text
-score(x) = P(Y = 1 | T = 1, X = x)
+(policy_name, prediction_path)
 ```
 
-It is a deployable targeting baseline but not an individual-treatment-effect estimator.
+The returned path allows the experiment runner to pass the exact newly created artifact into the manifest.
 
-#### T-Learner
+---
 
-```text
-mu1(x) = P(Y = 1 | T = 1, X = x)
-mu0(x) = P(Y = 1 | T = 0, X = x)
-score(x) = mu1(x) - mu0(x)
-```
+## 6. Validation Prediction Contract
 
-#### X-Learner
-
-Fit treatment and control outcome models, impute treatment effects, fit treatment-effect regressors, and combine their scores using the configured treatment-rate weight.
-
-## 5. Stage 3 — Validation Prediction and Provenance Artifacts
-
-### Prediction contract
-
-Each deployable candidate writes one validation prediction artifact containing:
+Each candidate writes one prediction artifact containing:
 
 ```text
 row_id
@@ -198,159 +202,117 @@ score
 model_name
 ```
 
-### Required invariants
+Required behavior:
 
-- `split` contains validation only.
-- Each `row_id` occurs exactly once.
-- The treatment and outcome labels match the prepared decision dataset for the same `row_id`.
-- The score comes from one exact trained model instance.
-- Artifact order is irrelevant; evaluation aligns by `row_id`.
+* `split` contains validation only.
+* Every `row_id` occurs once.
+* Candidate artifacts contain the same validation observations.
+* Treatment and outcome values match by `row_id`.
+* Artifact row order is irrelevant.
+* `model_name` matches the manifest policy name.
 
-### Model provenance
+Each prediction artifact has a provenance sidecar identifying:
 
-Each validation prediction artifact has a provenance sidecar containing the exact MLflow identity required to reproduce the score.
+* Dataset.
+* Outcome.
+* Policy.
+* Prediction artifact.
+* MLflow run ID.
+* Model URI or component model URIs.
+* Model-specific reload settings when required.
 
-Examples:
+---
 
-```text
-Response model:
-- mlflow_run_id
-- model_uri
+## 7. Experiment Manifest
 
-T-Learner:
-- mlflow_run_id
-- treatment_model_uri
-- control_model_uri
-
-X-Learner:
-- mlflow_run_id
-- tau1_model_uri
-- tau0_model_uri
-- constant_treatment_rate_weight
-```
-
-The prediction artifact and provenance sidecar together identify one candidate model instance.
-
-## 6. Stage 4 — Experiment Manifest
-
-### Current entry point
+Entry point:
 
 ```text
 src/uplift_modeling/pipelines/create_experiment_manifest.py
 ```
 
-### Responsibility
+The manifest groups the exact candidate artifacts used in one comparison.
 
-Group the exact validation prediction and model-provenance artifacts that belong to one candidate-comparison experiment.
-
-### Required manifest identity
-
-A manifest must identify:
+It records:
 
 ```text
 artifact_type
 experiment_id
 dataset_name
 outcome
-configuration identity
 prediction artifacts by policy
 model artifacts by policy
 ```
 
-### Required invariants
+Required behavior:
 
-- All entries belong to the same logical experiment.
-- All entries use the same dataset, outcome, prepared dataset identity, and evaluation contract.
-- Every deployable policy entry links validation predictions to matching model provenance.
-- The manifest is immutable once used for validation evaluation or champion selection.
-- A mutable `latest` name may exist only as a convenience pointer before selection; it must never be the identity stored in a champion or final-evaluation artifact.
+* Prediction paths are supplied explicitly.
+* The manifest does not scan an output directory.
+* The manifest does not select artifacts by run number or recency.
+* Every prediction artifact must exist.
+* Every prediction artifact must contain the required columns.
+* Every prediction artifact must contain validation rows only.
+* `model_name` must match the declared policy.
+* Every prediction artifact must have matching provenance.
+* An existing manifest cannot be silently overwritten.
 
-### Current implementation gap
+The experiment runner creates this mapping automatically from training outputs. Manual `POLICY=PATH` input is retained for debugging.
 
-The current manifest creator discovers the highest run number for each model independently and defaults to a `latest`-style experiment ID and output filename. That discovery mechanism is part of the current pipeline, not a second evaluation pipeline, but it does not yet prove that all selected model artifacts belong to the same experiment batch.
+---
 
-The code-hardening step must replace or constrain this behavior so that a manifest cannot silently mix unrelated model versions and cannot change after selection.
+## 8. Validation Evaluation
 
-## 7. Stage 5 — Standardized Validation Evaluation
-
-### Current entry point
+Entry point:
 
 ```text
 src/uplift_modeling/pipelines/evaluate_criteo_predictions.py
 ```
 
-### Responsibility
+The evaluator:
 
-Evaluate every candidate under one protocol using validation data only.
+* Loads prediction paths from one manifest.
+* Uses all deployable policies declared in that manifest.
+* Aligns candidate predictions by `row_id`.
+* Rejects test prediction artifacts.
+* Applies one evaluation configuration to all candidates.
+* Produces validation metrics and curves.
+* Returns the Selection Gate artifact path.
 
-### Data isolation
+Possible outputs include:
 
-- Standard evaluation accepts validation prediction artifacts only.
-- An artifact containing test rows is a hard error.
-- Test is not a configurable standard-evaluation split.
-- All candidate frames are aligned by `row_id` before metrics are calculated.
+* Top-K policy value.
+* Incremental outcome.
+* Qini.
+* AUUC.
+* Qini curve.
+* Uplift curve.
 
-### Evaluation policies
+The evaluator does not call locked-test evaluation.
 
-The evaluation set may contain:
+---
 
-```text
-random_targeting
-treated_response_lgbm
-t_learner_lgbm
-x_learner_lgbm
-```
+## 9. Evaluation Benchmark
 
-`random_targeting` is generated deterministically from the validation labels and configured random seed. It is a benchmark only.
+`random_targeting` is generated internally using the configured random seed.
 
-### Deployable candidate set
+It may be included in evaluation and bootstrap outputs, but:
 
-The Selection Gate may consider only policies backed by valid model provenance and loadable MLflow artifacts.
+* It is not stored as a deployable candidate in the manifest.
+* It has no model provenance.
+* It is not passed to the Selection Gate.
+* It cannot become champion.
 
-```text
-treated_response_lgbm
-t_learner_lgbm
-x_learner_lgbm
-```
+Evaluation membership and champion eligibility are separate concepts.
 
-Evaluation membership and champion eligibility are different concepts.
+---
 
-### Metrics
+## 10. Paired Bootstrap
 
-Validation evaluation may produce:
+Bootstrap uses validation data only.
 
-- Top-K policy value;
-- Top-K uplift rate;
-- incremental outcome;
-- Qini;
-- AUUC;
-- Qini and uplift curves.
+For each bootstrap iteration, the same sampled row positions are applied to every evaluated policy. This preserves paired candidate-versus-baseline comparisons.
 
-The configured primary selection metric is currently `policy_value` at a configured Top-K budget.
-
-## 8. Stage 6 — Paired Bootstrap Evaluation
-
-### Responsibility
-
-Estimate uncertainty for policy metrics using validation-only paired resampling.
-
-### Pairing rule
-
-For each bootstrap iteration, the same sampled row positions are applied to every evaluated policy. This preserves paired comparisons between policies.
-
-### Persisted outputs
-
-For each configured policy, split, budget, and metric, persist a reproducible summary:
-
-```text
-mean
-standard deviation
-confidence interval
-number of bootstrap resamples
-random seed
-```
-
-For each candidate-versus-baseline comparison, persist:
+Persisted summaries may include:
 
 ```text
 policy
@@ -360,226 +322,161 @@ split
 budget_fraction
 metric
 mean_delta
-standard deviation of delta
-confidence-interval lower bound
-confidence-interval upper bound
-number of bootstrap resamples
+standard deviation
+confidence-interval bounds
+number of resamples
 random seed
 ```
 
-Raw bootstrap sample arrays are not required as persisted deliverables.
+Raw bootstrap arrays are not required as persisted artifacts.
 
-### Allowed use
+Bootstrap on locked test may report final uncertainty, but it must not change the selected champion.
 
-Bootstrap confidence intervals are allowed to affect champion selection. Bootstrap on locked test is allowed only for final uncertainty reporting and must never change the champion.
+---
 
-## 9. Stage 7 — Deterministic Statistical Selection Gate
+## 11. Selection Gate
 
-### Current implementation
+Implementation:
 
 ```text
 src/uplift_modeling/evaluation/selection_gate.py
 ```
 
-### Responsibility
+The Selection Gate consumes validation paired-bootstrap contrasts.
 
-Consume precomputed validation paired-bootstrap contrasts and choose one champion deterministically.
+It must not:
 
-The Selection Gate must not:
+* Read train or test data.
+* Generate predictions.
+* Calculate model metrics.
+* Perform bootstrap.
+* Run locked-test evaluation.
 
-- read raw train data;
-- read raw validation data;
-- read test data;
-- calculate model predictions;
-- calculate uplift metrics;
-- perform bootstrap resampling;
-- evaluate the selected model on test.
+### Selection rule
 
-### Configured selection dimensions
+For the configured outcome, split, budget, metric, and baseline:
 
-```text
-primary outcome
-primary split
-primary budget fraction
-primary metric
-baseline policy
-```
+1. Restrict rows to deployable manifest policies.
+2. A candidate passes when `ci_lower > 0`.
+3. Select the passing candidate with the largest `mean_delta`.
+4. Break an exact tie by policy name.
+5. Select the baseline when no candidate passes.
 
-### Official selection rule
+The output records the selected policy, selection evidence, source manifest, and exact model provenance needed for final reload.
 
-1. Filter to the configured primary outcome, split, budget, metric, and baseline.
-2. Restrict candidates to deployable policies with valid provenance.
-3. A candidate passes when `ci_lower > 0` for its paired metric delta versus the baseline.
-4. If multiple candidates pass, select the largest `mean_delta`.
-5. If mean deltas are exactly equal, use policy name as the deterministic tie-break.
-6. If no candidate passes, select the baseline.
+---
 
-### Current implementation gap
+## 12. Champion Lock
 
-The current Selection Gate correctly implements filtering by selection dimensions, `ci_lower > 0`, largest `mean_delta`, deterministic tie-breaking, and baseline fallback. It does not yet receive or enforce an explicit deployable-candidate set, while `random_targeting` is included in bootstrap policy frames.
+The selected champion must identify one exact trained model instance.
 
-The next code change must exclude non-deployable benchmarks before they can become champion candidates.
-
-## 10. Stage 8 — Champion Lock
-
-### Required output
-
-Selection must produce an immutable champion artifact that identifies the exact model instance selected on validation.
-
-Minimum identity:
+Required identity includes:
 
 ```text
-artifact_type
 experiment_id
 dataset_name
 outcome
 champion_policy
-model_kind
 mlflow_run_id
-model_uri or component model URIs
-source validation prediction artifact
-source model-provenance artifact
+model URI or component URIs
+source prediction artifact
+source model provenance
 source experiment manifest
-source bootstrap paired-contrast artifact
+source bootstrap contrast
 selection settings
-selection method
 ```
 
-### Core invariant
+Core invariant:
 
 ```text
-Exact model instance evaluated on validation
+Model evaluated on validation
 ==
-Exact model instance loaded for locked test
+Model reloaded for locked test
 ```
 
-Matching only `champion_policy` is insufficient because multiple MLflow runs can share the same policy name.
+Matching only the policy name is insufficient because multiple MLflow runs may use the same policy name.
 
-### Current implementation gap
+---
 
-The current selection artifact locks `champion_policy` and selection evidence, while locked-test scoring obtains model identity from a separately supplied manifest. The next code change must make the champion self-contained or strictly bind the selection artifact to one immutable manifest entry.
+## 13. Locked-Test Evaluation
 
-## 11. Stage 9 — Locked-Test Scoring and Final Evaluation
-
-### Current entry point
+Entry point:
 
 ```text
 src/uplift_modeling/pipelines/evaluate_locked_test.py
 ```
 
-### Responsibility
+Required behavior:
 
-Load the exact locked champion from MLflow, score the test split once, and create the final evaluation artifact.
+* Accept one champion-selection artifact.
+* Validate its relationship with the supplied manifest.
+* Load the exact MLflow run and URI recorded for the champion.
+* Read the standard decision dataset.
+* Select `split == test`.
+* Score the champion only.
+* Write one champion-only test prediction artifact.
+* Calculate final metrics from that artifact.
+* Never rerun the Selection Gate.
+* Never replace the champion based on test performance.
 
-### Required behavior
+Locked-test results are final reporting outputs, not model-selection inputs.
 
-- Accept one locked champion only.
-- Load the exact `run_id` and URI recorded at selection time.
-- Read only `split == test` from the prepared decision dataset.
-- Score only the champion.
-- Generate one champion-only test prediction artifact.
-- Calculate all final metrics from the same champion prediction artifact.
-- Calculate final bootstrap uncertainty without changing selection.
-- Write an immutable final-evaluation artifact.
+---
 
-### Final metrics
+## 14. Configuration
 
-- Policy Value;
-- Top-K incremental outcome;
-- Qini;
-- AUUC;
-- bootstrap mean, standard deviation, and confidence interval;
-- final evaluation metadata and provenance.
-
-### Forbidden behavior
-
-- Running the Selection Gate inside locked-test evaluation.
-- Evaluating every candidate on test.
-- Tuning after test results are visible.
-- Replacing the champion because another model would have performed better on test.
-
-## 12. One-Way Finalization
-
-After a champion is selected for an experiment, the allowed transition is:
-
-```text
-champion artifact
-    ↓
-locked-test evaluation
-```
-
-The framework must reject attempts to:
-
-- replace the champion for the same finalized experiment;
-- combine a selection artifact with a different manifest;
-- load a different MLflow run under the same policy name;
-- overwrite final evaluation with different model, test dataset, or selection settings.
-
-A technical rerun may be allowed only when all relevant identities are unchanged and the operation is reproducible and idempotent.
-
-## 13. Configuration Contract
-
-The current model YAML files define:
+Candidate configs describe:
 
 ```text
 project experiment name
-dataset and processed paths
-train and validation split names
+dataset name and processed paths
+training and validation split names
 model parameters
 artifact output directories
-validation prediction split
 selection dimensions
-MLflow prediction logging behavior
 locked-test split
 ```
 
-Selection configuration describes the statistical gate. It does not imply that the Selection Gate performs bootstrap itself.
+The CLI `--outcome` determines the outcome for the current run.
 
-The CLI `--outcome` currently determines the evaluated outcome. It must agree with `selection.primary_outcome`; the next code-hardening step should validate this agreement explicitly.
+Candidate configs used in one experiment must share the same:
 
-## 14. Current Code Alignment Summary
+```text
+project
+data
+training
+outputs
+selection
+```
 
-### Already aligned
+Model-specific sections may differ.
 
-- Validation-only training prediction outputs.
-- Standard evaluator rejects artifacts containing test rows.
-- `row_id` alignment across candidate predictions.
-- Paired bootstrap comparisons.
-- Deterministic `ci_lower > 0` gate.
-- Largest-mean-delta selection and deterministic tie-break.
-- Baseline fallback.
-- Locked-test split fixed to `test`.
-- Locked-test pipeline scores only the selected policy.
-- Models are reloaded from MLflow for locked-test scoring.
+MLflow tracking is supplied through the user environment. No personal tracking server is hard-coded in the framework.
 
-### To be aligned in the next code phase
+---
 
-- Exclude non-deployable benchmark policies from selection candidates.
-- Bind champion to exact MLflow run and URI.
-- Make experiment manifests immutable and experiment-consistent.
-- Reject mismatched selection, manifest, model-provenance, and dataset identities.
-- Prevent backward selection after finalization.
-- Reject training configurations that use test for training or early stopping.
-
-## 15. Reuse Boundary for RetailHero
+## 15. RetailHero Reuse Boundary
 
 RetailHero may change:
 
-- raw-data loading;
-- schema validation;
-- customer-level aggregation;
-- feature engineering;
-- treatment and outcome construction.
+* Raw-data loading.
+* Source schema validation.
+* Customer-level aggregation.
+* Feature engineering.
+* Treatment construction.
+* Outcome construction.
+* Dataset configuration.
 
-RetailHero must not require a separate implementation of:
+RetailHero must reuse:
 
-- prediction artifact schema;
-- experiment manifest schema;
-- validation evaluation;
-- paired bootstrap;
-- Selection Gate;
-- champion identity;
-- locked-test evaluation;
-- final evaluation reporting.
+* Standard decision-dataset contract.
+* Prediction artifact contract.
+* Model provenance contract.
+* Experiment manifest.
+* Validation evaluation.
+* Paired bootstrap.
+* Selection Gate.
+* Champion identity.
+* Locked-test evaluation.
 
-That boundary is the central test of framework reusability.
+If RetailHero requires a copied evaluation or selection pipeline, the framework boundary is not yet sufficiently reusable.

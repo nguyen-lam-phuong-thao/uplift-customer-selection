@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import glob
 import json
-import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -16,9 +15,7 @@ from uplift_modeling.artifacts.model_provenance import (
     load_prediction_model_provenance,
 )
 
-
 EXPERIMENT_MANIFEST_ARTIFACT_TYPE = "experiment_manifest"
-PREDICTION_ARTIFACT_SUFFIX = "_predictions.parquet"
 REQUIRED_PREDICTION_COLUMNS = (
     "row_id",
     "treatment",
@@ -27,9 +24,6 @@ REQUIRED_PREDICTION_COLUMNS = (
     "score",
     "model_name",
 )
-POLICY_NAME_BY_ARTIFACT_MODEL_NAME = {
-    "response_lgbm": "pooled_response_lgbm",
-}
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -120,147 +114,12 @@ def save_experiment_manifest(
     return save_json_artifact(manifest, output_path)
 
 
-def find_latest_prediction_artifacts(
-    prediction_dir: Path,
-    dataset_name: str,
-    outcome: str,
-    model_names: tuple[str, ...] | None = None,
-) -> dict[str, Path]:
-    """Return the latest run-numbered prediction artifact for each model.
-
-    Only explicit run-numbered files produced by the training pipelines are
-    considered. Legacy unversioned files are intentionally ignored.
-    """
-    if not prediction_dir.exists():
-        raise FileNotFoundError(
-            f"Prediction artifact directory does not exist: {prediction_dir}"
-        )
-    if not prediction_dir.is_dir():
-        raise ValueError(
-            f"Prediction artifact path is not a directory: {prediction_dir}"
-        )
-
-    requested_models = set(model_names) if model_names is not None else None
-    pattern = re.compile(
-        rf"^{re.escape(dataset_name)}_{re.escape(outcome)}_"
-        rf"(?P<model_name>.+)_run(?P<run_number>\d+)"
-        rf"{re.escape(PREDICTION_ARTIFACT_SUFFIX)}$"
-    )
-    latest_by_model: dict[str, tuple[int, Path]] = {}
-    rejected_by_model: dict[str, list[str]] = {}
-
-    for prediction_path in prediction_dir.iterdir():
-        if not prediction_path.is_file():
-            continue
-
-        match = pattern.match(prediction_path.name)
-        if match is None:
-            continue
-
-        manifest_model_name = POLICY_NAME_BY_ARTIFACT_MODEL_NAME.get(
-            match.group("model_name"),
-            match.group("model_name"),
-        )
-        if (
-            requested_models is not None
-            and match.group("model_name") not in requested_models
-            and manifest_model_name not in requested_models
-        ):
-            continue
-
-        missing_columns = get_missing_prediction_columns(prediction_path)
-        if missing_columns:
-            rejected_by_model.setdefault(manifest_model_name, []).append(
-                f"{prediction_path.name} missing columns: "
-                f"{', '.join(missing_columns)}"
-            )
-            continue
-        split_values = pq.read_table(
-            prediction_path,
-            columns=["split"],
-        ).column("split").to_pylist()
-        if "test" in {str(split) for split in split_values}:
-            rejected_by_model.setdefault(manifest_model_name, []).append(
-                f"{prediction_path.name} contains test split rows"
-            )
-            continue
-        try:
-            validate_prediction_artifact_model_name(
-                prediction_path=prediction_path,
-                manifest_policy=manifest_model_name,
-            )
-        except ValueError as error:
-            rejected_by_model.setdefault(manifest_model_name, []).append(
-                f"{prediction_path.name} has invalid model_name: {error}"
-            )
-            continue
-
-        run_number = int(match.group("run_number"))
-        current = latest_by_model.get(manifest_model_name)
-        if current is None or run_number > current[0]:
-            latest_by_model[manifest_model_name] = (
-                run_number,
-                prediction_path,
-            )
-
-    if requested_models is not None:
-        requested_manifest_names = {
-            POLICY_NAME_BY_ARTIFACT_MODEL_NAME.get(model_name, model_name)
-            for model_name in requested_models
-        }
-        missing_models = sorted(
-            requested_manifest_names.difference(latest_by_model)
-        )
-        if missing_models:
-            missing_text = ", ".join(missing_models)
-            rejection_text = _format_rejected_artifact_details(
-                rejected_by_model,
-                missing_models,
-            )
-            raise FileNotFoundError(
-                "No schema-compatible prediction artifact found for "
-                f"requested model(s): {missing_text}.{rejection_text}"
-            )
-
-    if not latest_by_model:
-        rejection_text = _format_rejected_artifact_details(
-            rejected_by_model,
-            tuple(sorted(rejected_by_model)),
-        )
-        raise FileNotFoundError(
-            "No schema-compatible run-numbered prediction artifacts found for "
-            f"dataset '{dataset_name}' and outcome '{outcome}' in "
-            f"{prediction_dir}.{rejection_text}"
-        )
-
-    return {
-        model_name: path
-        for model_name, (_, path) in sorted(latest_by_model.items())
-    }
-
-
 def get_missing_prediction_columns(prediction_path: Path) -> tuple[str, ...]:
     """Return required prediction columns missing from a parquet artifact."""
     schema_columns = set(pq.read_schema(prediction_path).names)
     return tuple(
         sorted(set(REQUIRED_PREDICTION_COLUMNS).difference(schema_columns))
     )
-
-
-def _format_rejected_artifact_details(
-    rejected_by_model: dict[str, list[str]],
-    model_names: tuple[str, ...] | list[str],
-) -> str:
-    """Format rejected artifact details for clear manifest-creation errors."""
-    details = [
-        detail
-        for model_name in model_names
-        for detail in rejected_by_model.get(model_name, [])
-    ]
-    if not details:
-        return ""
-
-    return " Rejected artifact(s): " + "; ".join(details)
 
 
 def validate_experiment_manifest(

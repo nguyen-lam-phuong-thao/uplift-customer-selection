@@ -8,7 +8,6 @@ import pytest
 
 from uplift_modeling.data.dataset_spec import CRITEO_SPEC, DatasetSpec
 from uplift_modeling.pipelines.train_criteo_response_model import (
-    get_prediction_splits,
     get_processed_data_path,
     load_training_frame,
     resolve_dataset_spec,
@@ -61,16 +60,8 @@ def test_active_model_configs_load_without_obsolete_schema_keys() -> None:
         assert "test_split" not in training_config
         assert training_config["prediction_batch_size"] == 500000
         assert model_config["params"]["random_state"] == 42
-        assert output_config["prediction_splits"] == ["validation"]
-        assert selection_config["primary_outcome"] == "visit"
         assert selection_config["primary_split"] == "validation"
         assert tracking_config["log_predictions"] is False
-
-
-def test_normal_prediction_splits_reject_test() -> None:
-    """Normal training configs cannot request test predictions."""
-    with pytest.raises(ValueError, match="invalid values"):
-        get_prediction_splits({"prediction_splits": ["validation", "test"]})
 
 
 def test_training_splits_default_to_train_and_validation() -> None:
@@ -248,8 +239,6 @@ def _write_debug_sampling_config(
                 "outputs:",
                 f"  prediction_dir: {tmp_path / 'predictions'}",
                 f"  metric_dir: {tmp_path / 'metrics'}",
-                "  prediction_splits:",
-                "    - validation",
                 "tracking:",
                 "  log_predictions: false",
                 "debug:",

@@ -1,5 +1,5 @@
 project:
-  experiment_name: criteo-uplift-modeling
+  experiment_name: uplift-modeling
 
 data:
   dataset_name: criteo
@@ -39,11 +39,8 @@ outputs:
   prediction_dir: artifacts/predictions
   metric_dir: artifacts/metrics
   figure_dir: artifacts/figures
-  prediction_splits:
-    - validation
 
 selection:
-  primary_outcome: visit
   primary_split: validation
   primary_budget_fraction: 0.05
   primary_metric: policy_value

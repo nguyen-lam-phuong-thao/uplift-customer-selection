@@ -124,7 +124,7 @@ def get_experiment_name(config: dict[str, Any]) -> str:
     if not isinstance(project_config, dict):
         raise ValueError("Config section 'project' must be a mapping.")
 
-    return str(project_config.get("experiment_name", "criteo-uplift-modeling"))
+    return str(project_config.get("experiment_name", "uplift-modeling"))
 
 
 def validate_selection_source_manifest(

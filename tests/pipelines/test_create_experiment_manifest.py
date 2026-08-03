@@ -39,6 +39,7 @@ def _write_prediction_artifact(
     prediction_path: Path,
     policy_name: str,
     outcome: str = "conversion",
+    split_name: str = "validation",
 ) -> None:
     """Write a prediction artifact and its model provenance sidecar."""
     pd.DataFrame(
@@ -46,7 +47,7 @@ def _write_prediction_artifact(
             "row_id": [1],
             "treatment": [1],
             "outcome": [1],
-            "split": ["validation"],
+            "split": [split_name],
             "score": [0.8],
             "model_name": [policy_name],
         }
@@ -68,57 +69,74 @@ def _write_prediction_artifact(
     )
 
 
-def test_create_experiment_manifest_writes_latest_prediction_mapping(
+def test_create_experiment_manifest_writes_exact_prediction_mapping(
     tmp_path,
 ) -> None:
-    """Pipeline writes a manifest from latest prediction artifacts."""
+    """The manifest uses exactly the supplied prediction artifacts."""
     config_path = _write_config(tmp_path)
     prediction_dir = tmp_path / "predictions"
-    _write_prediction_artifact(
+
+    treated_response = (
         prediction_dir
-        / "criteo_conversion_response_lgbm_run01_predictions.parquet",
-        policy_name="pooled_response_lgbm",
+        / "criteo_conversion_treated_response_lgbm_run01_predictions.parquet"
     )
-    _write_prediction_artifact(
+    t_learner = (
         prediction_dir
-        / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet",
-        policy_name="t_learner_lgbm",
+        / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet"
     )
-    latest_x_learner = (
+    selected_x_learner = (
+        prediction_dir
+        / "criteo_conversion_x_learner_lgbm_run01_predictions.parquet"
+    )
+    newer_x_learner = (
         prediction_dir
         / "criteo_conversion_x_learner_lgbm_run02_predictions.parquet"
     )
-    _write_prediction_artifact(latest_x_learner, policy_name="x_learner_lgbm")
+
     _write_prediction_artifact(
-        prediction_dir
-        / "criteo_conversion_x_learner_lgbm_run01_predictions.parquet",
+        treated_response,
+        policy_name="treated_response_lgbm",
+    )
+    _write_prediction_artifact(
+        t_learner,
+        policy_name="t_learner_lgbm",
+    )
+    _write_prediction_artifact(
+        selected_x_learner,
         policy_name="x_learner_lgbm",
     )
+    _write_prediction_artifact(
+        newer_x_learner,
+        policy_name="x_learner_lgbm",
+    )
+
+    prediction_artifacts = {
+        "treated_response_lgbm": treated_response,
+        "t_learner_lgbm": t_learner,
+        "x_learner_lgbm": selected_x_learner,
+    }
 
     output_path = create_experiment_manifest(
         config_path=config_path,
         outcome="conversion",
         experiment_id="exp-001",
+        prediction_artifacts=prediction_artifacts,
     )
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
+
     assert output_path == (
-        tmp_path / "metrics" / "criteo_conversion_exp-001_experiment_manifest.json"
+        tmp_path
+        / "metrics"
+        / "criteo_conversion_exp-001_experiment_manifest.json"
     )
     assert payload["artifact_type"] == "experiment_manifest"
     assert payload["experiment_id"] == "exp-001"
     assert payload["dataset_name"] == "criteo"
     assert payload["outcome"] == "conversion"
     assert payload["prediction_artifacts"] == {
-        "pooled_response_lgbm": (
-            prediction_dir
-            / "criteo_conversion_response_lgbm_run01_predictions.parquet"
-        ).resolve().as_posix(),
-        "t_learner_lgbm": (
-            prediction_dir
-            / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet"
-        ).resolve().as_posix(),
-        "x_learner_lgbm": latest_x_learner.resolve().as_posix(),
+        policy_name: path.resolve().as_posix()
+        for policy_name, path in sorted(prediction_artifacts.items())
     }
 
 
@@ -136,11 +154,14 @@ def test_create_experiment_manifest_does_not_overwrite_existing_manifest(
         prediction_path,
         policy_name="t_learner_lgbm",
     )
-
+    prediction_artifacts = {
+        "t_learner_lgbm": prediction_path,
+    }
     create_experiment_manifest(
         config_path=config_path,
         outcome="conversion",
         experiment_id="exp-001",
+        prediction_artifacts=prediction_artifacts,
     )
 
     with pytest.raises(FileExistsError, match="cannot be overwritten"):
@@ -148,6 +169,7 @@ def test_create_experiment_manifest_does_not_overwrite_existing_manifest(
             config_path=config_path,
             outcome="conversion",
             experiment_id="exp-001",
+            prediction_artifacts=prediction_artifacts,
         )
 
 
@@ -177,4 +199,35 @@ def test_create_experiment_manifest_requires_model_provenance(
             config_path=config_path,
             outcome="conversion",
             experiment_id="exp-001",
+            prediction_artifacts={
+                "t_learner_lgbm": prediction_path,
+            },
+        )
+
+
+def test_create_experiment_manifest_rejects_non_validation_rows(
+    tmp_path,
+) -> None:
+    """Manifest inputs must contain validation rows only."""
+    config_path = _write_config(tmp_path)
+    prediction_path = (
+        tmp_path
+        / "predictions"
+        / "criteo_conversion_t_learner_lgbm_run01_predictions.parquet"
+    )
+
+    _write_prediction_artifact(
+        prediction_path,
+        policy_name="t_learner_lgbm",
+        split_name="test",
+    )
+
+    with pytest.raises(ValueError, match="only validation rows"):
+        create_experiment_manifest(
+            config_path=config_path,
+            outcome="conversion",
+            experiment_id="exp-001",
+            prediction_artifacts={
+                "t_learner_lgbm": prediction_path,
+            },
         )

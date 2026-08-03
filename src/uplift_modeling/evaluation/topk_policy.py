@@ -27,12 +27,6 @@ TOPK_ARTIFACT_MODEL_NAME = "topk_policy_evaluation"
 TOPK_BUDGET_FRACTIONS: tuple[float, ...] = (0.01, 0.05, 0.10, 0.20, 0.30)
 SELECTION_SPLIT = "validation"
 DEFAULT_EVALUATION_SPLITS = (SELECTION_SPLIT,)
-EXPECTED_POLICY_ARTIFACTS = {
-    "pooled_response_lgbm": ("pooled_response_lgbm", "response_lgbm"),
-    "treated_response_lgbm": ("treated_response_lgbm",),
-    "t_learner_lgbm": ("t_learner_lgbm",),
-    "x_learner_lgbm": ("x_learner_lgbm",),
-}
 
 
 def validate_standard_evaluation_splits(
@@ -59,50 +53,20 @@ def resolve_expected_policy_paths(
     manifest_prediction_paths: dict[str, Path],
     outcome: str,
 ) -> tuple[dict[str, Path], list[str]]:
-    """Resolve expected Top-K policies from manifest-listed artifacts."""
-    warnings: list[str] = []
-    policy_paths: dict[str, Path] = {}
-    for policy_name, artifact_candidates in EXPECTED_POLICY_ARTIFACTS.items():
-        matched_candidates = [
-            artifact_model_name
-            for artifact_model_name in artifact_candidates
-            if artifact_model_name in manifest_prediction_paths
-        ]
-
-        if len(matched_candidates) > 1:
-            matched_text = ", ".join(matched_candidates)
-            raise ValueError(
-                "Experiment manifest contains ambiguous prediction artifacts "
-                f"for policy '{policy_name}': {matched_text}."
-            )
-
-        if not matched_candidates:
-            warning = (
-                f"Missing optional prediction artifact for policy "
-                f"'{policy_name}'. Checked artifact model names: "
-                f"{', '.join(artifact_candidates)}."
-            )
-            LOGGER.warning(warning)
-            warnings.append(warning)
-            continue
-
-        matched_candidate = matched_candidates[0]
-        policy_paths[policy_name] = manifest_prediction_paths[matched_candidate]
-        if matched_candidate != policy_name:
-            warning = (
-                f"Using artifact model '{matched_candidate}' as policy "
-                f"'{policy_name}'."
-            )
-            LOGGER.warning(warning)
-            warnings.append(warning)
-
-    if not policy_paths:
+    """Use the exact prediction artifacts listed in the manifest."""
+    if not manifest_prediction_paths:
         raise ValueError(
-            "Experiment manifest does not contain any expected prediction "
+            "Experiment manifest does not contain any prediction "
             f"artifacts for outcome '{outcome}'."
         )
 
-    return policy_paths, warnings
+    if "random_targeting" in manifest_prediction_paths:
+        raise ValueError(
+            "random_targeting is generated internally for evaluation "
+            "and must not be included in the experiment manifest."
+        )
+
+    return dict(sorted(manifest_prediction_paths.items())), []
 
 
 def filter_evaluation_splits(

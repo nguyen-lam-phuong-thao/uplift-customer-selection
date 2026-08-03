@@ -15,7 +15,6 @@ from uplift_modeling.artifacts.model_provenance import (
 from uplift_modeling.artifacts.naming import (
     build_artifact_filename,
     find_next_run_number,
-    get_artifact_model_name,
 )
 from uplift_modeling.artifacts.predictions import (
     save_prediction_parquet_in_batches,
@@ -30,7 +29,6 @@ from uplift_modeling.pipelines.train_criteo_response_model import (
     apply_debug_sample,
     filter_training_and_validation_splits,
     get_debug_config,
-    get_prediction_splits,
     get_processed_data_path,
     get_split_frame,
     get_tracking_config,
@@ -74,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
+def train_x_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path]:
     """Run the configured Criteo X-Learner training pipeline."""
     project_root = get_project_root(Path(__file__))
     config = load_yaml_config(config_path)
@@ -85,7 +83,6 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
     output_config = get_config_section(config, "outputs")
     tracking_config = get_tracking_config(config)
     debug_config = get_debug_config(config)
-    get_prediction_splits(output_config)
 
     dataset_spec = resolve_dataset_spec(data_config)
     dataset_name = dataset_spec.name
@@ -100,7 +97,7 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
     early_stopping_rounds = int(training_config["early_stopping_rounds"])
     log_evaluation_period = int(training_config["log_evaluation_period"])
     model_name = str(model_config["name"])
-    artifact_model_name = get_artifact_model_name(model_name)
+    artifact_model_name = model_name
     model_params = dict(model_config["params"])
 
     data_path = get_processed_data_path(data_config, outcome, project_root)
@@ -250,9 +247,9 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
 
     project_config = config.get("project", {})
     experiment_name = (
-        project_config.get("experiment_name", "criteo-uplift-modeling")
+        project_config.get("experiment_name", "uplift-modeling")
         if isinstance(project_config, dict)
-        else "criteo-uplift-modeling"
+        else "uplift-modeling"
     )
     setup_mlflow(str(experiment_name))
     mlflow_params = {
@@ -355,7 +352,7 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> None:
 
     LOGGER.info("Saved X-Learner predictions to %s", prediction_path)
     LOGGER.info("Saved X-Learner model provenance to %s", provenance_path)
-
+    return model_name, prediction_path
 
 def main() -> None:
     """CLI entry point."""

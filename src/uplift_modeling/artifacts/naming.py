@@ -5,15 +5,6 @@ from pathlib import Path
 
 
 RUN_NUMBER_WIDTH = 2
-MODEL_NAME_ALIASES = {
-    "response_model_lgbm": "response_lgbm",
-}
-
-
-def get_artifact_model_name(model_name: str) -> str:
-    """Return the model name used in artifact filenames."""
-    return MODEL_NAME_ALIASES.get(model_name, model_name)
-
 
 def build_artifact_filename(
     db_name: str,

@@ -60,9 +60,7 @@ from uplift_modeling.utils.config import (
     load_yaml_config,
     resolve_project_path,
 )
-from uplift_modeling.pipelines.evaluate_locked_test import (
-    evaluate_locked_test,
-)
+
 
 
 LOGGER = logging.getLogger(__name__)
@@ -375,7 +373,7 @@ def evaluate_predictions(
     bootstrap_splits: tuple[str, ...] | None = None,
     bootstrap_budget_fractions: tuple[float, ...] | None = None,
     skip_bootstrap: bool = False,
-) -> None:
+) -> Path | None:
     """Evaluate local Criteo prediction artifacts."""
     project_root = get_project_root(Path(__file__))
     config = load_yaml_config(config_path)
@@ -564,20 +562,7 @@ def evaluate_predictions(
         LOGGER.info("Saved evaluation metrics to %s", metrics_path)
         LOGGER.info("Saved Qini curve to %s", qini_curve_path)
         LOGGER.info("Saved uplift curve to %s", uplift_curve_path)
-
-    if selection_artifact_path is not None and not topk_only:
-        locked_test_path = evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=selection_artifact_path,
-            outcome=outcome,
-            n_bootstrap=n_bootstrap,
-            random_seed=random_seed,
-        )
-        LOGGER.info(
-            "Saved locked-test evaluation to %s",
-            locked_test_path,
-        )
+    return selection_artifact_path
 
 def main() -> None:
     """CLI entry point."""
