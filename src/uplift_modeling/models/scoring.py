@@ -215,7 +215,7 @@ def _require_model_uri(
     key: str,
     policy: str,
 ) -> str:
-    """Return a model URI belonging to the declared MLflow run."""
+    """Return a supported MLflow model URI."""
     model_uri = _require_string(
         model_artifact,
         key,
@@ -226,16 +226,30 @@ def _require_model_uri(
         "mlflow_run_id",
         policy,
     )
-    expected_prefix = f"runs:/{mlflow_run_id}/"
 
-    if not model_uri.startswith(expected_prefix):
-        raise ValueError(
-            f"Model artifact metadata for policy '{policy}' has "
-            f"'{key}' that must belong to mlflow_run_id "
-            f"'{mlflow_run_id}'. Received: '{model_uri}'."
-        )
+    if model_uri.startswith(
+        f"runs:/{mlflow_run_id}/"
+    ):
+        return model_uri
 
-    return model_uri
+    logged_model_id = model_uri.removeprefix(
+        "models:/"
+    )
+
+    if (
+        logged_model_id.startswith("m-")
+        and len(logged_model_id) > 2
+        and "/" not in logged_model_id
+    ):
+        return model_uri
+
+    raise ValueError(
+        f"Model artifact metadata for policy '{policy}' has "
+        f"'{key}' that must belong to mlflow_run_id "
+        f"'{mlflow_run_id}' when using a runs URI, or be "
+        "an MLflow 3 logged-model URI. "
+        f"Received: '{model_uri}'."
+    )
 
 
 def _require_float(

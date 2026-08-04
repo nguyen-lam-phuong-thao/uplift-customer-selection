@@ -252,3 +252,53 @@ def test_x_learner_scoring_fails_for_incomplete_model_metadata() -> None:
                 "treatment_effect_model_uri": "runs:/run-006/tau1_model",
             },
         )
+
+
+def test_x_learner_scoring_accepts_mlflow3_model_uris(
+    monkeypatch,
+) -> None:
+    """X-Learner scoring accepts MLflow 3 logged models."""
+    models = {
+        "models:/m-tau1": _RegressionModel(0.6),
+        "models:/m-tau0": _RegressionModel(0.2),
+    }
+    loaded_uris = []
+
+    def load_model(model_uri: str):
+        loaded_uris.append(model_uri)
+        return models[model_uri]
+
+    monkeypatch.setattr(
+        scoring.mlflow.lightgbm,
+        "load_model",
+        load_model,
+    )
+
+    score_batch = scoring.build_policy_score_batch(
+        policy="x_learner_lgbm",
+        model_artifact={
+            "artifact_type": "model_provenance",
+            "policy_name": "x_learner_lgbm",
+            "model_kind": "x_learner",
+            "mlflow_run_id": "run-003",
+            "treatment_effect_model_uri": (
+                "models:/m-tau1"
+            ),
+            "control_effect_model_uri": (
+                "models:/m-tau0"
+            ),
+            "constant_treatment_rate_weight": 0.25,
+        },
+    )
+
+    scores = score_batch(
+        pd.DataFrame({"f0": [1.0, 2.0]})
+    )
+
+    assert loaded_uris == [
+        "models:/m-tau1",
+        "models:/m-tau0",
+    ]
+    assert scores.tolist() == pytest.approx(
+        [0.5, 0.5]
+    )        

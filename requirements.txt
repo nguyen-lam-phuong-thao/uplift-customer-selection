@@ -7,6 +7,7 @@ matplotlib>=3.8,<4.0
 jupyter>=1.1,<2.0
 ipykernel>=6.29,<8.0
 pyyaml>=6.0,<7.0
-mlflow
+mlflow>=3.1,<4.0
 pytest
 scikit-uplift>=0.5
+duckdb>=1.0,<2.0

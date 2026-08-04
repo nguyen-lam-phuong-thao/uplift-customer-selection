@@ -9,3 +9,14 @@ criteo:
     validation_size: 0.2
     test_size: 0.2
     random_state: 42
+
+retailhero:
+  raw_path: data/raw/retailhero
+  processed_path: data/processed/retailhero
+  files:
+    clients: clients.csv
+    products: products.csv
+    purchases: purchases.csv
+    uplift_train: uplift_train.csv
+    uplift_test: uplift_test.csv
+    sample_submission: uplift_sample_submission.csv
