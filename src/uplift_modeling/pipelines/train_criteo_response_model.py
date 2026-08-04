@@ -453,7 +453,10 @@ def train_response_pipeline(config_path: Path, outcome: str) -> tuple[str, Path]
         if bool(tracking_config["log_predictions"]):
             mlflow.log_artifact(str(prediction_path))
 
-        mlflow.lightgbm.log_model(model, artifact_path="model")
+        model_info = mlflow.lightgbm.log_model(
+            model,
+            name="model",
+        )
 
     provenance_path = get_model_provenance_path(prediction_path)
     save_model_provenance_payload(
@@ -465,7 +468,7 @@ def train_response_pipeline(config_path: Path, outcome: str) -> tuple[str, Path]
             model_kind=RESPONSE_MODEL_KIND,
             mlflow_run_id=run.info.run_id,
             model_artifacts={
-                "model_uri": f"runs:/{run.info.run_id}/model",
+                "model_uri": model_info.model_uri,
             },
         ),
         provenance_path,

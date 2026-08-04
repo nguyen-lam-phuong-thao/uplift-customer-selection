@@ -261,13 +261,13 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
         if bool(tracking_config["log_predictions"]):
             mlflow.log_artifact(str(prediction_path))
 
-        mlflow.lightgbm.log_model(
+        treatment_model_info = mlflow.lightgbm.log_model(
             treatment_model,
-            artifact_path="treatment_model",
+            name="treatment_model",
         )
-        mlflow.lightgbm.log_model(
+        control_model_info = mlflow.lightgbm.log_model(
             control_model,
-            artifact_path="control_model",
+            name="control_model",
         )
 
     provenance_path = get_model_provenance_path(prediction_path)
@@ -280,10 +280,8 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
             model_kind=T_LEARNER_MODEL_KIND,
             mlflow_run_id=run.info.run_id,
             model_artifacts={
-                "treatment_model_uri": (
-                    f"runs:/{run.info.run_id}/treatment_model"
-                ),
-                "control_model_uri": f"runs:/{run.info.run_id}/control_model",
+                "treatment_model_uri": treatment_model_info.model_uri,
+                "control_model_uri": control_model_info.model_uri,
             },
         ),
         provenance_path,

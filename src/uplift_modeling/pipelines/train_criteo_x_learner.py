@@ -309,21 +309,13 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
         if bool(tracking_config["log_predictions"]):
             mlflow.log_artifact(str(prediction_path))
 
-        mlflow.lightgbm.log_model(
-            x_learner_result.treatment_model,
-            artifact_path="mu1_model",
-        )
-        mlflow.lightgbm.log_model(
-            x_learner_result.control_model,
-            artifact_path="mu0_model",
-        )
-        mlflow.lightgbm.log_model(
+        treatment_effect_model_info = mlflow.lightgbm.log_model(
             x_learner_result.treatment_effect_model,
-            artifact_path="tau1_model",
+            name="tau1_model",
         )
-        mlflow.lightgbm.log_model(
+        control_effect_model_info = mlflow.lightgbm.log_model(
             x_learner_result.control_effect_model,
-            artifact_path="tau0_model",
+            name="tau0_model",
         )
 
     provenance_path = get_model_provenance_path(prediction_path)
@@ -337,10 +329,10 @@ def train_x_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
             mlflow_run_id=run.info.run_id,
             model_artifacts={
                 "treatment_effect_model_uri": (
-                    f"runs:/{run.info.run_id}/tau1_model"
+                    treatment_effect_model_info.model_uri
                 ),
                 "control_effect_model_uri": (
-                    f"runs:/{run.info.run_id}/tau0_model"
+                    control_effect_model_info.model_uri
                 ),
                 "constant_treatment_rate_weight": float(
                     x_learner_result.constant_treatment_rate_weight
