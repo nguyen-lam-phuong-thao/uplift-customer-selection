@@ -1,4 +1,4 @@
-"""Train the Criteo LightGBM response model for visit or conversion."""
+"""Train the LightGBM response model for visit or conversion."""
 
 import argparse
 import logging
@@ -25,7 +25,7 @@ from uplift_modeling.artifacts.predictions import (
 )
 from uplift_modeling.data.dataset_spec import (
     DatasetSpec,
-    get_dataset_spec,
+    load_dataset_config,
     validate_supported_outcome,
 )
 from uplift_modeling.data.row_id import validate_row_id_column
@@ -42,20 +42,25 @@ from uplift_modeling.utils.config import (
     load_yaml_config,
     resolve_project_path,
 )
-
+from uplift_modeling.models.config import resolve_model_candidate
 
 LOGGER = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for Criteo response-model training."""
+    """Parse command-line arguments for  response-model training."""
     parser = argparse.ArgumentParser(
-        description="Train a Criteo LightGBM response model."
+        description="Train a LightGBM response model."
     )
     parser.add_argument(
-        "--config",
+    "--dataset-config",
+    required=True,
+    help="Path to the dataset YAML config.",
+    )
+    parser.add_argument(
+        "--modeling-config",
         required=True,
-        help="Path to the response-model YAML config.",
+        help="Path to the shared modeling YAML config.",
     )
     parser.add_argument(
         "--outcome",
@@ -108,27 +113,6 @@ def get_tracking_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Config section 'tracking' must be a mapping.")
 
     return {"log_predictions": False, **tracking_config}
-
-
-def get_processed_data_path(
-    data_config: dict[str, Any],
-    outcome: str,
-    project_root: Path,
-) -> Path:
-    """Return the configured processed parquet path for one outcome."""
-    processed_paths = data_config.get("processed_paths")
-    if not isinstance(processed_paths, dict) or outcome not in processed_paths:
-        raise ValueError(
-            "Config data.processed_paths must define a path for the requested "
-            f"outcome: {outcome}."
-        )
-
-    return resolve_project_path(processed_paths[outcome], project_root)
-
-
-def resolve_dataset_spec(data_config: dict[str, Any]) -> DatasetSpec:
-    """Resolve the stable dataset schema selected by config."""
-    return get_dataset_spec(str(data_config["dataset_name"]))
 
 
 def get_debug_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -256,19 +240,32 @@ def filter_training_and_validation_splits(
     ].copy()
 
 
-def train_response_pipeline(config_path: Path, outcome: str) -> tuple[str, Path]:
-    """Run the configured Criteo response-model training pipeline."""
+def train_response_pipeline(dataset_config_path: Path, modeling_config_path:Path, outcome: str) -> tuple[str, Path]:
+    """Run the configured response-model training pipeline."""
     project_root = get_project_root(Path(__file__))
-    config = load_yaml_config(config_path)
+    dataset_config = load_dataset_config(
+        dataset_config_path,
+        project_root=project_root,
+    )
+    modeling_config = load_yaml_config(modeling_config_path)
 
-    data_config = get_config_section(config, "data")
-    training_config = get_config_section(config, "training")
-    model_config = get_config_section(config, "model")
-    output_config = get_config_section(config, "outputs")
-    tracking_config = get_tracking_config(config)
-    debug_config = get_debug_config(config)
+    training_config = get_config_section(
+        modeling_config,
+        "training",
+    )
+    output_config = get_config_section(
+        modeling_config,
+        "outputs",
+    )
+    tracking_config = get_tracking_config(modeling_config)
+    debug_config = get_debug_config(modeling_config)
 
-    dataset_spec = resolve_dataset_spec(data_config)
+    model_candidate = resolve_model_candidate(
+        modeling_config,
+        RESPONSE_MODEL_KIND,
+    )
+
+    dataset_spec = dataset_config.spec
     dataset_name = dataset_spec.name
     validate_outcome(outcome, dataset_spec)
     feature_columns = dataset_spec.feature_columns
@@ -280,11 +277,11 @@ def train_response_pipeline(config_path: Path, outcome: str) -> tuple[str, Path]
     prediction_batch_size = int(training_config["prediction_batch_size"])
     early_stopping_rounds = int(training_config["early_stopping_rounds"])
     log_evaluation_period = int(training_config["log_evaluation_period"])
-    model_name = str(model_config["name"])
+    model_name = model_candidate.name
     artifact_model_name = model_name
-    model_params = dict(model_config["params"])
+    model_params = dict(model_candidate.params)
 
-    data_path = get_processed_data_path(data_config, outcome, project_root)
+    data_path = dataset_config.processed_paths[outcome]
     prediction_dir = resolve_project_path(
         output_config["prediction_dir"],
         project_root,
@@ -416,7 +413,7 @@ def train_response_pipeline(config_path: Path, outcome: str) -> tuple[str, Path]
 
     save_json_artifact(metrics, metrics_path)
 
-    project_config = config.get("project", {})
+    project_config = modeling_config.get("project", {})
     experiment_name = (
         project_config.get("experiment_name", "uplift-modeling")
         if isinstance(project_config, dict)
@@ -488,8 +485,20 @@ def main() -> None:
     )
     args = parse_args()
     project_root = get_project_root(Path(__file__))
-    config_path = resolve_project_path(args.config, project_root)
-    train_response_pipeline(config_path=config_path, outcome=args.outcome)
+    dataset_config_path = resolve_project_path(
+        args.dataset_config,
+        project_root,
+    )
+    modeling_config_path = resolve_project_path(
+        args.modeling_config,
+        project_root,
+    )
+
+    train_response_pipeline(
+        dataset_config_path=dataset_config_path,
+        modeling_config_path=modeling_config_path,
+        outcome=args.outcome,
+    )
 
 
 if __name__ == "__main__":

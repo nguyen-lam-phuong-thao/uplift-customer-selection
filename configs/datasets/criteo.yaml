@@ -1,0 +1,38 @@
+dataset:
+  name: criteo
+  prepared_path: data/interim/criteo/criteo_modeling_base.parquet
+
+schema:
+  row_id_column: row_id
+  treatment_column: treatment
+  split_column: split
+
+  feature_columns:
+    - f0
+    - f1
+    - f2
+    - f3
+    - f4
+    - f5
+    - f6
+    - f7
+    - f8
+    - f9
+    - f10
+    - f11
+
+  outcome_columns:
+    - visit
+    - conversion
+
+split:
+  assign_if_missing: true
+  train_size: 0.6
+  validation_size: 0.2
+  test_size: 0.2
+  random_state: 42
+
+outputs:
+  processed_paths:
+    visit: data/processed/criteo/criteo_decision_visit.parquet
+    conversion: data/processed/criteo/criteo_decision_conversion.parquet

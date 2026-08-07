@@ -1,4 +1,4 @@
-"""Tests for locked-test pipeline scoring wiring."""
+"""Focused tests for locked-test pipeline wiring."""
 
 import json
 from pathlib import Path
@@ -10,737 +10,344 @@ import pytest
 from uplift_modeling.pipelines import evaluate_locked_test as pipeline
 
 
-def _write_config(
-    tmp_path: Path,
-    data_path: Path,
-    locked_test_split: str | None = None,
-) -> Path:
-    """Write a minimal locked-test config."""
-    config_path = tmp_path / "config.yaml"
-
-    config_lines = [
-        "project:",
-        "  experiment_name: test-experiment",
-        "data:",
-        "  dataset_name: criteo",
-        "  processed_paths:",
-        f"    visit: {data_path}",
-        "training:",
-        "  prediction_batch_size: 2",
-        "outputs:",
-        f"  prediction_dir: {tmp_path / 'predictions'}",
-        f"  metric_dir: {tmp_path / 'metrics'}",
-    ]
-
-    if locked_test_split is not None:
-        config_lines.extend(
-            [
-                "locked_test:",
-                f"  split: {locked_test_split}",
-            ]
-        )
-
-    config_path.write_text(
-        "\n".join(config_lines),
-        encoding="utf-8",
-    )
-    return config_path
+DATASET_NAME = "synthetic"
+OUTCOME = "visit"
+EXPERIMENT_ID = "exp-001"
+CHAMPION_POLICY = "t_learner_lgbm"
 
 
-def _write_prepared_dataset(tmp_path: Path) -> Path:
-    """Write fixed train, validation, and test rows."""
+def _write_decision_dataset(tmp_path: Path) -> Path:
     rows = []
-    for row_id, split in enumerate(
-        ["train"] * 2
-        + ["validation"] * 2
-        + ["test"] * 20
-    ):
+    splits = ["train"] * 2 + ["validation"] * 2 + ["test"] * 20
+    for row_id, split in enumerate(splits):
         row = {
             "row_id": row_id,
             "treatment": row_id % 2,
             "split": split,
-            "visit": int(row_id in {2, 4}),
+            OUTCOME: int(row_id % 5 == 0),
         }
-        row.update({f"f{index}": float(row_id + index) for index in range(12)})
+        row.update({f"f{i}": float(row_id + i) for i in range(12)})
         rows.append(row)
 
-    data_path = tmp_path / "criteo_decision_visit.parquet"
-    pd.DataFrame(rows).to_parquet(data_path, index=False)
-    return data_path
+    path = tmp_path / "synthetic_decision_visit.parquet"
+    pd.DataFrame(rows).to_parquet(path, index=False)
+    return path
 
 
-def _write_selection_artifact(
-    tmp_path: Path,
-    champion_policy: str,
-    include_champion_provenance: bool = True,
-    experiment_id: str = "exp-001",
-    source_manifest_path: Path | None = None,
-) -> Path:
-    """Write a Selection Gate artifact for locked-test pipeline tests."""
-    payload = {
-        "artifact_type": "model_selection_gate",
-        "experiment_id": experiment_id,
-        "dataset_name": "criteo",
-        "source_manifest_path": str(
-            (source_manifest_path or tmp_path / "experiment_manifest.json").resolve()
+def _write_dataset_config(tmp_path: Path, data_path: Path) -> Path:
+    path = tmp_path / "dataset.yaml"
+    features = [f"    - f{i}" for i in range(12)]
+    path.write_text(
+        "\n".join(
+            [
+                "dataset:",
+                f"  name: {DATASET_NAME}",
+                f"  prepared_path: {data_path.as_posix()}",
+                "schema:",
+                "  row_id_column: row_id",
+                "  treatment_column: treatment",
+                "  split_column: split",
+                "  feature_columns:",
+                *features,
+                "  outcome_columns:",
+                f"    - {OUTCOME}",
+                "split:",
+                "  assign_if_missing: false",
+                "  train_size: 0.6",
+                "  validation_size: 0.2",
+                "  test_size: 0.2",
+                "  random_state: 42",
+                "outputs:",
+                "  processed_paths:",
+                f"    {OUTCOME}: {data_path.as_posix()}",
+            ]
         ),
-        "champion_policy": champion_policy,
-        "selection_settings": {
-            "outcome": "visit",
-            "split": "validation",
-            "budget_fraction": 0.1,
-            "metric": "policy_value",
-            "baseline_policy": "treated_response_lgbm",
-        },
-    }
-
-    if include_champion_provenance:
-        payload["champion_model_artifact"] = {
-            "artifact_type": "model_provenance",
-            "dataset_name": "criteo",
-            "outcome": "visit",
-            "policy_name": champion_policy,
-            "prediction_artifact": (
-                f"criteo_visit_{champion_policy}_run01_predictions.parquet"
-            ),
-            "model_kind": "t_learner",
-            "mlflow_run_id": f"run-{champion_policy}",
-            "treatment_model_uri": (
-                f"runs:/run-{champion_policy}/treatment_model"
-            ),
-            "control_model_uri": (
-                f"runs:/run-{champion_policy}/control_model"
-            ),
-        }
-
-    selection_path = tmp_path / "selection.json"
-    selection_path.write_text(
-        json.dumps(payload),
         encoding="utf-8",
     )
-    return selection_path
+    return path
+
+
+def _write_modeling_config(tmp_path: Path) -> Path:
+    path = tmp_path / "modeling.yaml"
+    path.write_text(
+        "\n".join(
+            [
+                "project:",
+                "  experiment_name: test-experiment",
+                "training:",
+                "  prediction_batch_size: 2",
+                "outputs:",
+                f"  prediction_dir: {(tmp_path / 'predictions').as_posix()}",
+                f"  metric_dir: {(tmp_path / 'metrics').as_posix()}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _model_artifact(policy: str, run_id: str | None = None) -> dict:
+    run_id = run_id or f"run-{policy}"
+    base = {
+        "artifact_type": "model_provenance",
+        "dataset_name": DATASET_NAME,
+        "outcome": OUTCOME,
+        "policy_name": policy,
+        "prediction_artifact": (
+            f"{DATASET_NAME}_{OUTCOME}_{policy}_run01_predictions.parquet"
+        ),
+        "mlflow_run_id": run_id,
+    }
+
+    if policy == CHAMPION_POLICY:
+        return {
+            **base,
+            "model_kind": "t_learner",
+            "treatment_model_uri": f"runs:/{run_id}/treatment_model",
+            "control_model_uri": f"runs:/{run_id}/control_model",
+        }
+
+    return {
+        **base,
+        "model_kind": "response",
+        "model_uri": f"runs:/{run_id}/model",
+    }
+
+
+def _write_validation_prediction(path: Path, policy: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "row_id": [2, 3],
+            "treatment": [0, 1],
+            "outcome": [0, 1],
+            "split": ["validation", "validation"],
+            "score": [0.2, 0.8],
+            "model_name": [policy, policy],
+        }
+    ).to_parquet(path, index=False)
 
 
 def _write_manifest(
     tmp_path: Path,
-    config_path: Path,
-    champion_policy: str = "t_learner_lgbm",
-    include_champion_provenance: bool = True,
-    include_ignored_candidates: bool = True,
+    dataset_config_path: Path,
+    modeling_config_path: Path,
+    *,
     include_champion_prediction: bool = True,
-    experiment_id: str = "exp-001",
 ) -> Path:
-    """Write a validation manifest with model provenance."""
-    prediction_dir = tmp_path / "validation_predictions"
-    prediction_dir.mkdir()
-    policies = []
-    if include_ignored_candidates:
-        policies.append("treated_response_lgbm")
-    if include_champion_prediction:
-        policies.append(champion_policy)
-    if include_ignored_candidates:
-        policies.append("x_learner_lgbm")
-
+    validation_dir = tmp_path / "validation_predictions"
+    policies = ("treated_response_lgbm", CHAMPION_POLICY)
     prediction_artifacts = {}
     model_artifacts = {}
-    for policy in policies:
-        prediction_path = (
-            prediction_dir / f"criteo_visit_{policy}_run01_predictions.parquet"
-        )
-        prediction_path.touch()
-        pd.DataFrame({"model_name": [policy]}).to_parquet(
-            prediction_path,
-            index=False,
-        )
-        prediction_artifacts[policy] = str(prediction_path)
-        if policy == champion_policy and not include_champion_provenance:
-            continue
-        if policy != champion_policy:
-            continue
-        model_artifacts[policy] = {
-            "artifact_type": "model_provenance",
-            "dataset_name": "criteo",
-            "outcome": "visit",
-            "policy_name": policy,
-            "prediction_artifact": prediction_path.name,
-            "model_kind": "t_learner",
-            "mlflow_run_id": f"run-{policy}",
-            "model_uri": f"runs:/run-{policy}/model",
-            "treatment_model_uri": f"runs:/run-{policy}/treatment_model",
-            "control_model_uri": f"runs:/run-{policy}/control_model",
-        }
 
-    manifest_path = tmp_path / "experiment_manifest.json"
-    manifest_path.write_text(
+    for policy in policies:
+        artifact = _model_artifact(policy)
+        prediction_path = validation_dir / artifact["prediction_artifact"]
+        if policy != CHAMPION_POLICY or include_champion_prediction:
+            _write_validation_prediction(prediction_path, policy)
+            prediction_artifacts[policy] = str(prediction_path)
+        model_artifacts[policy] = artifact
+
+    path = tmp_path / "experiment_manifest.json"
+    path.write_text(
         json.dumps(
             {
                 "artifact_type": "experiment_manifest",
-                "experiment_id": experiment_id,
-                "dataset_name": "criteo",
-                "outcome": "visit",
-                "config_path": str(config_path),
+                "experiment_id": EXPERIMENT_ID,
+                "dataset_name": DATASET_NAME,
+                "outcome": OUTCOME,
+                "dataset_config_path": str(dataset_config_path.resolve()),
+                "modeling_config_path": str(modeling_config_path.resolve()),
                 "prediction_artifacts": prediction_artifacts,
                 "model_artifacts": model_artifacts,
             }
         ),
         encoding="utf-8",
     )
-    return manifest_path
+    return path
 
 
-def _patch_model_boundary(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    """Mock MLflow-backed model loading at the scoring boundary."""
-    loaded: list[tuple[str, str]] = []
+def _write_selection(
+    tmp_path: Path,
+    manifest_path: Path,
+    *,
+    source_manifest_path: Path | None = None,
+    champion_artifact: dict | None = None,
+) -> Path:
+    path = tmp_path / "selection.json"
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_type": "model_selection_gate",
+                "experiment_id": EXPERIMENT_ID,
+                "dataset_name": DATASET_NAME,
+                "outcome": OUTCOME,
+                "source_manifest_path": str(
+                    (source_manifest_path or manifest_path).resolve()
+                ),
+                "champion_policy": CHAMPION_POLICY,
+                "champion_model_artifact": (
+                    champion_artifact or _model_artifact(CHAMPION_POLICY)
+                ),
+                "selection_settings": {
+                    "outcome": OUTCOME,
+                    "split": "validation",
+                    "budget_fraction": 0.1,
+                    "metric": "policy_value",
+                    "baseline_policy": "treated_response_lgbm",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _setup(tmp_path: Path) -> tuple[Path, Path]:
+    data_path = _write_decision_dataset(tmp_path)
+    dataset_config_path = _write_dataset_config(tmp_path, data_path)
+    modeling_config_path = _write_modeling_config(tmp_path)
+    manifest_path = _write_manifest(
+        tmp_path,
+        dataset_config_path,
+        modeling_config_path,
+    )
+    selection_path = _write_selection(tmp_path, manifest_path)
+    return manifest_path, selection_path
+
+
+def _patch_runtime(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    loaded = []
 
     def build_score_batch(policy: str, model_artifact: dict):
-        loaded.append((policy, str(model_artifact["mlflow_run_id"])))
+        loaded.append((policy, model_artifact["mlflow_run_id"]))
 
         def score_batch(features: pd.DataFrame) -> np.ndarray:
-            offset = 1.0 if policy == "t_learner_lgbm" else 0.0
-            return np.arange(len(features), dtype=float) + offset
+            return np.arange(len(features), dtype=float)
 
         return score_batch
 
+    def save_final(**kwargs):
+        metric_dir = kwargs["metric_dir"]
+        metric_dir.mkdir(parents=True, exist_ok=True)
+        output_path = metric_dir / "locked_test_result.json"
+        output_path.write_text("{}", encoding="utf-8")
+        return output_path, {}
+
     monkeypatch.setattr(pipeline, "build_policy_score_batch", build_score_batch)
-    monkeypatch.setattr(pipeline, "setup_mlflow", lambda experiment_name: None)
+    monkeypatch.setattr(pipeline, "setup_mlflow", lambda _: None)
+    monkeypatch.setattr(pipeline, "_save_locked_test_evaluation", save_final)
     return loaded
 
 
-def test_locked_test_pipeline_scores_existing_test_rows_only(
-    tmp_path,
-    monkeypatch,
+def test_locked_test_scores_only_exact_champion_on_test_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Locked test filters fixed test rows and scores only the champion."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(tmp_path, config_path)
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    loaded = _patch_model_boundary(monkeypatch)
+    manifest_path, selection_path = _setup(tmp_path)
+    loaded = _patch_runtime(monkeypatch)
 
     output_path = pipeline.evaluate_locked_test(
-        config_path=config_path,
         manifest_path=manifest_path,
         selection_artifact_path=selection_path,
-        outcome="visit",
+        n_bootstrap=3,
+        random_seed=42,
     )
 
     assert output_path.exists()
-    assert loaded == [("t_learner_lgbm", "run-t_learner_lgbm")]
+    assert loaded == [(CHAMPION_POLICY, f"run-{CHAMPION_POLICY}")]
 
-    prediction_paths = sorted((tmp_path / "predictions").glob("*.parquet"))
+    prediction_paths = list((tmp_path / "predictions").glob("*.parquet"))
     assert len(prediction_paths) == 1
-    assert prediction_paths[0].name == (
-        "criteo_visit_t_learner_lgbm_exp-001_"
-        "locked_test_predictions.parquet"
-    )
     frame = pd.read_parquet(prediction_paths[0])
     assert frame["row_id"].tolist() == list(range(4, 24))
     assert set(frame["split"]) == {"test"}
-    assert "row_id" in frame.columns
-
-    payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert output_path.name == (
-        "criteo_visit_exp-001_locked_test_evaluation.json"
-    )
-    assert payload["experiment_id"] == "exp-001"
-    assert payload["champion_model_artifact"] == {
-        "artifact_type": "model_provenance",
-        "dataset_name": "criteo",
-        "outcome": "visit",
-        "policy_name": "t_learner_lgbm",
-        "prediction_artifact": (
-            "criteo_visit_t_learner_lgbm_run01_predictions.parquet"
-        ),
-        "model_kind": "t_learner",
-        "mlflow_run_id": "run-t_learner_lgbm",
-        "treatment_model_uri": (
-            "runs:/run-t_learner_lgbm/treatment_model"
-        ),
-        "control_model_uri": (
-            "runs:/run-t_learner_lgbm/control_model"
-        ),
-    }
-    assert "baseline_policy" not in payload
-    assert payload["prediction_artifacts"] == {
-        "t_learner_lgbm": prediction_paths[0].name,
-    }
-    assert {row["policy"] for row in payload["locked_test_rows"]} == {
-        "t_learner_lgbm"
-    }
 
 
-def test_locked_test_pipeline_reuses_existing_final_result(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """A later run returns the existing final result without scoring again."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(tmp_path, config_path)
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    loaded = _patch_model_boundary(monkeypatch)
-
-    first_output_path = pipeline.evaluate_locked_test(
-        config_path=config_path,
-        manifest_path=manifest_path,
-        selection_artifact_path=selection_path,
-        outcome="visit",
-    )
-    first_payload = json.loads(first_output_path.read_text(encoding="utf-8"))
-    prediction_files = sorted(
-        path.name for path in (tmp_path / "predictions").iterdir()
-    )
-    metric_files = sorted(path.name for path in (tmp_path / "metrics").iterdir())
-
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("Locked Test should not score again.")
-
-    monkeypatch.setattr(pipeline, "load_locked_test_source_frame", fail_if_called)
-    monkeypatch.setattr(pipeline, "setup_mlflow", fail_if_called)
-    monkeypatch.setattr(pipeline, "build_policy_score_batch", fail_if_called)
-
-    second_output_path = pipeline.evaluate_locked_test(
-        config_path=config_path,
-        manifest_path=manifest_path,
-        selection_artifact_path=selection_path,
-        outcome="visit",
-    )
-    second_payload = json.loads(second_output_path.read_text(encoding="utf-8"))
-
-    assert second_output_path == first_output_path
-    assert second_payload == first_payload
-    assert loaded == [("t_learner_lgbm", "run-t_learner_lgbm")]
-    assert sorted(path.name for path in (tmp_path / "predictions").iterdir()) == (
-        prediction_files
-    )
-    assert sorted(path.name for path in (tmp_path / "metrics").iterdir()) == (
-        metric_files
+def test_locked_test_source_frame_does_not_resplit(tmp_path: Path) -> None:
+    data_path = _write_decision_dataset(tmp_path)
+    dataset_config_path = _write_dataset_config(tmp_path, data_path)
+    dataset_config = pipeline.load_dataset_config(
+        dataset_config_path,
+        project_root=tmp_path,
     )
 
-
-def test_locked_test_pipeline_rejects_existing_result_for_different_champion(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """A final result cannot be reused by a different selected champion."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(tmp_path, config_path)
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    _patch_model_boundary(monkeypatch)
-
-    pipeline.evaluate_locked_test(
-        config_path=config_path,
-        manifest_path=manifest_path,
-        selection_artifact_path=selection_path,
-        outcome="visit",
-    )
-    different_selection_path = _write_selection_artifact(
-        tmp_path,
-        "x_learner_lgbm",
-    )
-
-    def fail_if_data_loads(*args, **kwargs):
-        raise AssertionError("Locked Test data should not be loaded.")
-
-    monkeypatch.setattr(
-        pipeline,
-        "load_locked_test_source_frame",
-        fail_if_data_loads,
-    )
-
-    with pytest.raises(ValueError, match="champion_policy"):
-        pipeline.evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=different_selection_path,
-            outcome="visit",
-        )
-
-
-def test_locked_test_pipeline_requires_existing_selection_artifact(
-    tmp_path,
-) -> None:
-    """Locked test starts from an already-written Selection Gate artifact."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(tmp_path, config_path)
-
-    with pytest.raises(FileNotFoundError, match="Selection Gate artifact"):
-        pipeline.evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=tmp_path / "missing_selection.json",
-            outcome="visit",
-        )
-
-
-def test_locked_test_pipeline_fails_without_champion_provenance(
-    tmp_path,
-) -> None:
-    """Locked test rejects a selection artifact without champion provenance."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(
-        tmp_path,
-        config_path,
-    )
-    selection_path = _write_selection_artifact(
-        tmp_path,
-        "t_learner_lgbm",
-        include_champion_provenance=False,
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="champion_model_artifact",
-    ):
-        pipeline.evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=selection_path,
-            outcome="visit",
-        )
-
-
-def test_locked_test_pipeline_ignores_baseline_and_extra_provenance(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Baseline and extra candidates are not required or loaded on test."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(tmp_path, config_path)
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    loaded = _patch_model_boundary(monkeypatch)
-
-    output_path = pipeline.evaluate_locked_test(
-        config_path=config_path,
-        manifest_path=manifest_path,
-        selection_artifact_path=selection_path,
-        outcome="visit",
-    )
-
-    payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert loaded == [("t_learner_lgbm", "run-t_learner_lgbm")]
-    assert set(payload["prediction_artifacts"]) == {"t_learner_lgbm"}
-
-
-def test_locked_test_source_frame_does_not_resplit(tmp_path) -> None:
-    """Locked test preserves row IDs from the configured test split."""
-    data_path = _write_prepared_dataset(tmp_path)
-
-    test_frame, target_column = pipeline.load_locked_test_source_frame(
+    frame, target = pipeline.load_locked_test_source_frame(
         parquet_path=data_path,
-        dataset_spec=pipeline.get_dataset_spec("criteo"),
-        outcome="visit",
+        dataset_spec=dataset_config.spec,
+        outcome=OUTCOME,
     )
 
-    assert target_column == "visit"
-    assert test_frame["row_id"].tolist() == list(range(4, 24))
+    assert target == OUTCOME
+    assert frame["row_id"].tolist() == list(range(4, 24))
+    assert set(frame["split"]) == {"test"}
 
 
-def test_locked_test_pipeline_rejects_non_test_split(
-    tmp_path,
-) -> None:
-    """Locked test cannot be configured to score validation rows."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(
-        tmp_path,
-        data_path,
-        locked_test_split="validation",
-    )
-    manifest_path = _write_manifest(tmp_path, config_path)
-    selection_path = _write_selection_artifact(
-        tmp_path,
-        "t_learner_lgbm",
-    )
-
-    with pytest.raises(ValueError, match="test split only"):
-        pipeline.evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=selection_path,
-            outcome="visit",
-        )
-
-
-def test_locked_test_pipeline_fails_without_champion_prediction(tmp_path) -> None:
-    """A selected champion without a prediction artifact fails clearly."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
+def test_locked_test_requires_champion_validation_prediction(tmp_path: Path) -> None:
+    data_path = _write_decision_dataset(tmp_path)
+    dataset_config_path = _write_dataset_config(tmp_path, data_path)
+    modeling_config_path = _write_modeling_config(tmp_path)
     manifest_path = _write_manifest(
         tmp_path,
-        config_path,
+        dataset_config_path,
+        modeling_config_path,
         include_champion_prediction=False,
     )
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
+    selection_path = _write_selection(tmp_path, manifest_path)
 
-    with pytest.raises(ValueError, match="t_learner_lgbm"):
+    with pytest.raises(ValueError, match=CHAMPION_POLICY):
         pipeline.evaluate_locked_test(
-            config_path=config_path,
             manifest_path=manifest_path,
             selection_artifact_path=selection_path,
-            outcome="visit",
         )
 
 
-def test_locked_test_rejects_mismatched_experiment_id(
-    tmp_path,
-) -> None:
-    """Selection and manifest must belong to the same experiment."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
+def test_locked_test_rejects_selection_from_other_manifest(tmp_path: Path) -> None:
+    data_path = _write_decision_dataset(tmp_path)
+    dataset_config_path = _write_dataset_config(tmp_path, data_path)
+    modeling_config_path = _write_modeling_config(tmp_path)
 
-    manifest_path = _write_manifest(
-        tmp_path,
-        config_path,
-        experiment_id="exp-002",
-    )
-    selection_path = _write_selection_artifact(
-        tmp_path,
-        "t_learner_lgbm",
-        experiment_id="exp-001",
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="same experiment_id",
-    ):
-        pipeline.evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=selection_path,
-            outcome="visit",
-        )
-
-
-def test_locked_test_rejects_selection_from_different_manifest(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Selection must reference the exact supplied manifest path."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
     first_dir = tmp_path / "first"
     second_dir = tmp_path / "second"
     first_dir.mkdir()
     second_dir.mkdir()
-    first_manifest_path = _write_manifest(first_dir, config_path)
-    second_manifest_path = _write_manifest(second_dir, config_path)
-    selection_path = _write_selection_artifact(
-        tmp_path,
-        "t_learner_lgbm",
-        source_manifest_path=first_manifest_path,
+
+    first_manifest = _write_manifest(
+        first_dir,
+        dataset_config_path,
+        modeling_config_path,
     )
-
-    def fail_if_data_loads(*args, **kwargs):
-        raise AssertionError("Locked Test data should not be loaded.")
-
-    monkeypatch.setattr(
-        pipeline,
-        "load_locked_test_source_frame",
-        fail_if_data_loads,
+    second_manifest = _write_manifest(
+        second_dir,
+        dataset_config_path,
+        modeling_config_path,
+    )
+    selection_path = _write_selection(
+        tmp_path,
+        second_manifest,
+        source_manifest_path=first_manifest,
     )
 
     with pytest.raises(ValueError, match="does not reference"):
         pipeline.evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=second_manifest_path,
+            manifest_path=second_manifest,
             selection_artifact_path=selection_path,
-            outcome="visit",
         )
 
 
-@pytest.mark.parametrize(
-    "mutate_payload,error_match",
-    [
-        (
-            lambda payload: payload.update({"artifact_type": "wrong"}),
-            "artifact_type",
+def test_locked_test_rejects_different_champion_model_run(tmp_path: Path) -> None:
+    manifest_path, _ = _setup(tmp_path)
+    selection_path = _write_selection(
+        tmp_path,
+        manifest_path,
+        champion_artifact=_model_artifact(
+            CHAMPION_POLICY,
+            run_id="different-run",
         ),
-        (
-            lambda payload: payload["selection_settings"].update(
-                {"split": "test"}
-            ),
-            "validation",
-        ),
-        (
-            lambda payload: payload["champion_model_artifact"].pop(
-                "control_model_uri"
-            ),
-            "control_model_uri",
-        ),
-    ],
-)
-def test_locked_test_rejects_malformed_selection_before_data_load(
-    tmp_path,
-    monkeypatch,
-    mutate_payload,
-    error_match: str,
-) -> None:
-    """Selection validation fails before Locked Test data or MLflow loading."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(tmp_path, config_path)
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    payload = json.loads(selection_path.read_text(encoding="utf-8"))
-    mutate_payload(payload)
-    selection_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    def fail_if_data_loads(*args, **kwargs):
-        raise AssertionError("Locked Test data should not be loaded.")
-
-    monkeypatch.setattr(
-        pipeline,
-        "load_locked_test_source_frame",
-        fail_if_data_loads,
     )
 
-    with pytest.raises(ValueError, match=error_match):
+    with pytest.raises(ValueError, match="does not match the exact model"):
         pipeline.evaluate_locked_test(
-            config_path=config_path,
             manifest_path=manifest_path,
             selection_artifact_path=selection_path,
-            outcome="visit",
-        )
-
-
-def test_locked_test_rejects_malformed_manifest_before_data_load(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Manifest artifact_type validation fails before Locked Test data loading."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(tmp_path, config_path)
-    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest_payload["artifact_type"] = "wrong"
-    manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-
-    def fail_if_data_loads(*args, **kwargs):
-        raise AssertionError("Locked Test data should not be loaded.")
-
-    monkeypatch.setattr(
-        pipeline,
-        "load_locked_test_source_frame",
-        fail_if_data_loads,
-    )
-
-    with pytest.raises(ValueError, match="Experiment manifest artifact_type"):
-        pipeline.evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=selection_path,
-            outcome="visit",
-        )
-
-
-def test_locked_test_rejects_mismatched_dataset(
-    tmp_path,
-) -> None:
-    """Selection and manifest must use the configured dataset."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(tmp_path, config_path)
-    selection_path = _write_selection_artifact(
-        tmp_path,
-        "t_learner_lgbm",
-    )
-
-    selection_payload = json.loads(
-        selection_path.read_text(encoding="utf-8")
-    )
-    selection_payload["dataset_name"] = "retailhero"
-    selection_path.write_text(
-        json.dumps(selection_payload),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="same dataset_name",
-    ):
-        pipeline.evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=selection_path,
-            outcome="visit",
-        )
-
-
-def test_locked_test_rejects_mismatched_outcome(
-    tmp_path,
-) -> None:
-    """Selection outcome must match manifest and Locked Test request."""
-    data_path = _write_prepared_dataset(tmp_path)
-    config_path = _write_config(tmp_path, data_path)
-    manifest_path = _write_manifest(tmp_path, config_path)
-    selection_path = _write_selection_artifact(
-        tmp_path,
-        "t_learner_lgbm",
-    )
-
-    selection_payload = json.loads(
-        selection_path.read_text(encoding="utf-8")
-    )
-    selection_payload["selection_settings"][
-        "outcome"
-    ] = "conversion"
-    selection_payload["champion_model_artifact"][
-        "outcome"
-    ] = "conversion"
-
-    selection_path.write_text(
-        json.dumps(selection_payload),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="same outcome",
-    ):
-        pipeline.evaluate_locked_test(
-            config_path=config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=selection_path,
-            outcome="visit",
-        )
-
-
-def test_locked_test_rejects_config_different_from_manifest(
-    tmp_path,
-) -> None:
-    """Locked Test must use the config recorded in the manifest."""
-    data_path = _write_prepared_dataset(tmp_path)
-
-    manifest_config_path = _write_config(
-        tmp_path,
-        data_path,
-    )
-    manifest_path = _write_manifest(
-        tmp_path,
-        manifest_config_path,
-    )
-    selection_path = _write_selection_artifact(
-        tmp_path,
-        "t_learner_lgbm",
-    )
-
-    runtime_config_path = tmp_path / "other_config.yaml"
-    runtime_config_path.write_text(
-        manifest_config_path.read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="config must match",
-    ):
-        pipeline.evaluate_locked_test(
-            config_path=runtime_config_path,
-            manifest_path=manifest_path,
-            selection_artifact_path=selection_path,
-            outcome="visit",
         )

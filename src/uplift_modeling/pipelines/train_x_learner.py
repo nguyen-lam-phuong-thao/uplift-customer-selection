@@ -1,4 +1,4 @@
-"""Train the Criteo LightGBM T-Learner for visit or conversion."""
+"""Train the LightGBM X-Learner for visit or conversion."""
 
 import argparse
 import logging
@@ -6,7 +6,6 @@ from pathlib import Path
 
 import mlflow
 import mlflow.lightgbm
-import pandas as pd
 
 from uplift_modeling.artifacts.model_provenance import (
     build_model_provenance_payload,
@@ -20,23 +19,29 @@ from uplift_modeling.artifacts.naming import (
 from uplift_modeling.artifacts.predictions import (
     save_prediction_parquet_in_batches,
 )
-from uplift_modeling.models.scoring import T_LEARNER_MODEL_KIND
-from uplift_modeling.models.t_learner import (
-    fit_t_learner,
-    predict_t_learner_scores,
+from uplift_modeling.models.scoring import X_LEARNER_MODEL_KIND
+from uplift_modeling.models.x_learner import (
+    fit_x_learner,
+    predict_x_learner_scores,
+    summarize_values,
 )
-from uplift_modeling.pipelines.train_criteo_response_model import (
+from uplift_modeling.pipelines.train_response_model import (
     apply_debug_sample,
     filter_training_and_validation_splits,
     get_debug_config,
-    get_processed_data_path,
     get_split_frame,
     get_tracking_config,
     load_training_frame,
-    resolve_dataset_spec,
     validate_outcome,
     get_training_splits,
 )
+from uplift_modeling.pipelines.train_t_learner import (
+    CONTROL_VALUE,
+    TREATMENT_VALUE,
+    get_treatment_group,
+)
+from uplift_modeling.data.dataset_spec import load_dataset_config
+from uplift_modeling.models.config import resolve_model_candidate
 from uplift_modeling.tracking.mlflow_tracking import setup_mlflow
 from uplift_modeling.utils.config import (
     get_config_section,
@@ -47,19 +52,17 @@ from uplift_modeling.utils.config import (
 
 
 LOGGER = logging.getLogger(__name__)
-TREATMENT_VALUE = 1
-CONTROL_VALUE = 0
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for Criteo T-Learner training."""
+    """Parse command-line arguments for X-Learner training."""
     parser = argparse.ArgumentParser(
-        description="Train a Criteo LightGBM T-Learner."
+        description="Train a LightGBM X-Learner."
     )
     parser.add_argument(
         "--config",
         required=True,
-        help="Path to the T-Learner YAML config.",
+        help="Path to the X-Learner YAML config.",
     )
     parser.add_argument(
         "--outcome",
@@ -69,35 +72,33 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def get_treatment_group(
-    dataframe: pd.DataFrame,
-    treatment_column: str,
-    treatment_value: int,
-    split_name: str,
-) -> pd.DataFrame:
-    """Return treatment or control rows for one split."""
-    group = dataframe.loc[dataframe[treatment_column] == treatment_value]
-
-    if group.empty:
-        label = "treatment" if treatment_value == TREATMENT_VALUE else "control"
-        raise ValueError(f"Split '{split_name}' has no {label} rows.")
-
-    return group
-
-
-def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path]:
-    """Run the configured Criteo T-Learner training pipeline."""
+def train_x_learner_pipeline(dataset_config_path: Path, modeling_config_path: Path, outcome: str) -> tuple[str, Path]:
+    """Run the configured X-Learner training pipeline."""
     project_root = get_project_root(Path(__file__))
-    config = load_yaml_config(config_path)
 
-    data_config = get_config_section(config, "data")
-    training_config = get_config_section(config, "training")
-    model_config = get_config_section(config, "model")
-    output_config = get_config_section(config, "outputs")
-    tracking_config = get_tracking_config(config)
-    debug_config = get_debug_config(config)
+    dataset_config = load_dataset_config(
+        dataset_config_path,
+        project_root=project_root,
+    )
+    modeling_config = load_yaml_config(modeling_config_path)
 
-    dataset_spec = resolve_dataset_spec(data_config)
+    training_config = get_config_section(
+        modeling_config,
+        "training",
+    )
+    output_config = get_config_section(
+        modeling_config,
+        "outputs",
+    )
+    tracking_config = get_tracking_config(modeling_config)
+    debug_config = get_debug_config(modeling_config)
+
+    model_candidate = resolve_model_candidate(
+        modeling_config,
+        X_LEARNER_MODEL_KIND,
+    )
+
+    dataset_spec = dataset_config.spec
     dataset_name = dataset_spec.name
     validate_outcome(outcome, dataset_spec)
     feature_columns = dataset_spec.feature_columns
@@ -109,11 +110,11 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
     prediction_batch_size = int(training_config["prediction_batch_size"])
     early_stopping_rounds = int(training_config["early_stopping_rounds"])
     log_evaluation_period = int(training_config["log_evaluation_period"])
-    model_name = str(model_config["name"])
+    model_name = model_candidate.name
     artifact_model_name = model_name
-    model_params = dict(model_config["params"])
+    model_params = dict(model_candidate.params)
 
-    data_path = get_processed_data_path(data_config, outcome, project_root)
+    data_path = dataset_config.processed_paths[outcome]
     prediction_dir = resolve_project_path(
         output_config["prediction_dir"],
         project_root,
@@ -186,8 +187,31 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
         validation_split,
     )
 
+    LOGGER.info("Train rows: %s", len(train_frame))
+    LOGGER.info("Validation rows: %s", len(validation_frame))
+    LOGGER.info("Treatment train rows: %s", len(treatment_train))
+    LOGGER.info("Control train rows: %s", len(control_train))
+    LOGGER.info("Treatment validation rows: %s", len(treatment_valid))
+    LOGGER.info("Control validation rows: %s", len(control_valid))
+    LOGGER.info(
+        "Treatment train positive rate: %.6f",
+        treatment_train[target_column].mean(),
+    )
+    LOGGER.info(
+        "Control train positive rate: %.6f",
+        control_train[target_column].mean(),
+    )
+    LOGGER.info(
+        "Treatment validation positive rate: %.6f",
+        treatment_valid[target_column].mean(),
+    )
+    LOGGER.info(
+        "Control validation positive rate: %.6f",
+        control_valid[target_column].mean(),
+    )
+
     LOGGER.info("Training %s for %s", model_name, outcome)
-    treatment_model, control_model = fit_t_learner(
+    x_learner_result = fit_x_learner(
         treatment_train=treatment_train,
         control_train=control_train,
         treatment_valid=treatment_valid,
@@ -198,6 +222,23 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
         early_stopping_rounds=early_stopping_rounds,
         log_evaluation_period=log_evaluation_period,
     )
+    LOGGER.info(
+        "Constant treatment-rate weight: %.6f",
+        x_learner_result.constant_treatment_rate_weight,
+    )
+    LOGGER.info("D1 summary: %s", x_learner_result.treatment_effect_summary)
+    LOGGER.info("D0 summary: %s", x_learner_result.control_effect_summary)
+
+    validation_scores = predict_x_learner_scores(
+        treatment_effect_model=x_learner_result.treatment_effect_model,
+        control_effect_model=x_learner_result.control_effect_model,
+        constant_treatment_rate_weight=(
+            x_learner_result.constant_treatment_rate_weight
+        ),
+        features=validation_frame.loc[:, feature_columns],
+    )
+    validation_score_summary = summarize_values(validation_scores)
+    LOGGER.info("Validation score summary: %s", validation_score_summary)
 
     save_prediction_parquet_in_batches(
         dataframes=(validation_frame,),
@@ -208,14 +249,17 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
         outcome_column=target_column,
         model_name=model_name,
         batch_size=prediction_batch_size,
-        score_batch=lambda X_batch: predict_t_learner_scores(
-            treatment_model,
-            control_model,
-            X_batch,
+        score_batch=lambda X_batch: predict_x_learner_scores(
+            treatment_effect_model=x_learner_result.treatment_effect_model,
+            control_effect_model=x_learner_result.control_effect_model,
+            constant_treatment_rate_weight=(
+                x_learner_result.constant_treatment_rate_weight
+            ),
+            features=X_batch,
         ),
     )
 
-    project_config = config.get("project", {})
+    project_config = modeling_config.get("project", {})
     experiment_name = (
         project_config.get("experiment_name", "uplift-modeling")
         if isinstance(project_config, dict)
@@ -237,6 +281,9 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
         "validation_rows": int(len(validation_frame)),
         "treatment_train_rows": int(len(treatment_train)),
         "control_train_rows": int(len(control_train)),
+        "constant_treatment_rate_weight": float(
+            x_learner_result.constant_treatment_rate_weight
+        ),
         **model_params,
     }
     mlflow_metrics = {
@@ -252,6 +299,21 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
         "control_validation_positive_rate": float(
             control_valid[target_column].mean()
         ),
+        "constant_treatment_rate_weight": float(
+            x_learner_result.constant_treatment_rate_weight
+        ),
+        **{
+            f"d1_{key}": float(value)
+            for key, value in x_learner_result.treatment_effect_summary.items()
+        },
+        **{
+            f"d0_{key}": float(value)
+            for key, value in x_learner_result.control_effect_summary.items()
+        },
+        **{
+            f"validation_score_{key}": float(value)
+            for key, value in validation_score_summary.items()
+        },
     }
 
     with mlflow.start_run(run_name=f"{outcome}_{model_name}") as run:
@@ -261,13 +323,13 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
         if bool(tracking_config["log_predictions"]):
             mlflow.log_artifact(str(prediction_path))
 
-        treatment_model_info = mlflow.lightgbm.log_model(
-            treatment_model,
-            name="treatment_model",
+        treatment_effect_model_info = mlflow.lightgbm.log_model(
+            x_learner_result.treatment_effect_model,
+            name="tau1_model",
         )
-        control_model_info = mlflow.lightgbm.log_model(
-            control_model,
-            name="control_model",
+        control_effect_model_info = mlflow.lightgbm.log_model(
+            x_learner_result.control_effect_model,
+            name="tau0_model",
         )
 
     provenance_path = get_model_provenance_path(prediction_path)
@@ -277,18 +339,25 @@ def train_t_learner_pipeline(config_path: Path, outcome: str) -> tuple[str, Path
             outcome=outcome,
             policy_name=model_name,
             prediction_path=prediction_path,
-            model_kind=T_LEARNER_MODEL_KIND,
+            model_kind=X_LEARNER_MODEL_KIND,
             mlflow_run_id=run.info.run_id,
             model_artifacts={
-                "treatment_model_uri": treatment_model_info.model_uri,
-                "control_model_uri": control_model_info.model_uri,
+                "treatment_effect_model_uri": (
+                    treatment_effect_model_info.model_uri
+                ),
+                "control_effect_model_uri": (
+                    control_effect_model_info.model_uri
+                ),
+                "constant_treatment_rate_weight": float(
+                    x_learner_result.constant_treatment_rate_weight
+                ),
             },
         ),
         provenance_path,
     )
 
-    LOGGER.info("Saved T-Learner predictions to %s", prediction_path)
-    LOGGER.info("Saved T-Learner model provenance to %s", provenance_path)
+    LOGGER.info("Saved X-Learner predictions to %s", prediction_path)
+    LOGGER.info("Saved X-Learner model provenance to %s", provenance_path)
     return model_name, prediction_path
 
 def main() -> None:
@@ -299,8 +368,19 @@ def main() -> None:
     )
     args = parse_args()
     project_root = get_project_root(Path(__file__))
-    config_path = resolve_project_path(args.config, project_root)
-    train_t_learner_pipeline(config_path=config_path, outcome=args.outcome)
+    dataset_config_path = resolve_project_path(
+        args.dataset_config,
+        project_root,
+    )
+    modeling_config_path = resolve_project_path(
+        args.modeling_config,
+        project_root,
+    )
+    train_x_learner_pipeline(
+        dataset_config_path=dataset_config_path,
+        modeling_config_path=modeling_config_path,
+        outcome=args.outcome,
+    )
 
 
 if __name__ == "__main__":

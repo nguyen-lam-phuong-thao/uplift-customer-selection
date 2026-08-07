@@ -1,12 +1,6 @@
 project:
   experiment_name: uplift-modeling
 
-data:
-  dataset_name: criteo
-  processed_paths:
-    visit: data/processed/criteo/criteo_decision_visit.parquet
-    conversion: data/processed/criteo/criteo_decision_conversion.parquet
-
 training:
   train_split: train
   validation_split: validation
@@ -14,10 +8,8 @@ training:
   early_stopping_rounds: 100
   log_evaluation_period: 50
 
-model:
-  name: treated_response_lgbm
-
-  params:
+models:
+  model_defaults:
     objective: binary
     boosting_type: gbdt
     n_estimators: 5000
@@ -34,6 +26,19 @@ model:
     n_jobs: -1
     importance_type: gain
     verbosity: -1
+
+  candidates:
+    - name: treated_response_lgbm
+      kind: response
+      params: {}
+
+    - name: t_learner_lgbm
+      kind: t_learner
+      params: {}
+
+    - name: x_learner_lgbm
+      kind: x_learner
+      params: {}
 
 outputs:
   prediction_dir: artifacts/predictions

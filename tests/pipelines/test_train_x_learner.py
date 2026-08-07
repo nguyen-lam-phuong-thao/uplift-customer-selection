@@ -1,4 +1,4 @@
-"""Tests for the Criteo X-Learner training pipeline wiring."""
+"""Tests for the X-Learner training pipeline wiring."""
 
 from pathlib import Path
 
@@ -11,7 +11,7 @@ def test_x_learner_pipeline_logs_mlflow_metrics() -> None:
         / "src"
         / "uplift_modeling"
         / "pipelines"
-        / "train_criteo_x_learner.py"
+        / "train_x_learner.py"
     )
     source = pipeline_path.read_text(encoding="utf-8")
 

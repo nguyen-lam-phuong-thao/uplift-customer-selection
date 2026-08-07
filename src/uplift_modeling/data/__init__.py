@@ -1,20 +1,15 @@
-from uplift_modeling.data.criteo import (
-    BINARY_COLUMNS,
-    CRITEO_COLUMNS,
-    FEATURE_COLUMNS,
-    load_criteo,
-)
+"""Data contract and standardization helpers."""
+
 from uplift_modeling.data.dataset_spec import (
-    CRITEO_SPEC,
-    DATASET_SPECS,
+    DatasetConfig,
     DatasetSpec,
+    SplitConfig,
     get_dataset_spec,
+    load_dataset_config,
     validate_supported_outcome,
 )
 from uplift_modeling.data.preparation import (
-    assign_stratified_split,
     build_decision_dataset,
-    build_decision_frame,
     save_decision_dataset,
 )
 from uplift_modeling.data.row_id import (
@@ -23,25 +18,34 @@ from uplift_modeling.data.row_id import (
     align_frames_by_row_id,
     validate_row_id_column,
 )
-from uplift_modeling.data.validation import validate_criteo
+from uplift_modeling.data.split import (
+    assign_stratified_split,
+    ensure_split_column,
+    validate_split_column,
+)
+from uplift_modeling.data.standardization import (
+    load_prepared_table,
+    standardize_prepared_dataset,
+)
+from uplift_modeling.data.validation import validate_prepared_dataset_contract
 
 __all__ = [
-    "assign_stratified_split",
-    "BINARY_COLUMNS",
-    "build_decision_dataset",
-    "build_decision_frame",
-    "CRITEO_SPEC",
-    "CRITEO_COLUMNS",
-    "DATASET_SPECS",
+    "DatasetConfig",
     "DatasetSpec",
-    "FEATURE_COLUMNS",
+    "SplitConfig",
     "get_dataset_spec",
-    "load_criteo",
+    "load_dataset_config",
+    "validate_supported_outcome",
+    "build_decision_dataset",
+    "save_decision_dataset",
     "ROW_ID_COLUMN",
     "add_row_id",
     "align_frames_by_row_id",
-    "save_decision_dataset",
-    "validate_criteo",
     "validate_row_id_column",
-    "validate_supported_outcome",
+    "assign_stratified_split",
+    "ensure_split_column",
+    "validate_split_column",
+    "load_prepared_table",
+    "standardize_prepared_dataset",
+    "validate_prepared_dataset_contract",
 ]

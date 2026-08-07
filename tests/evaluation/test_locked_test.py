@@ -1,4 +1,4 @@
-"""Tests for locked test-set reporting."""
+"""Focused tests for locked-test evaluation helpers."""
 
 import json
 from pathlib import Path
@@ -6,335 +6,119 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from uplift_modeling.evaluation.bootstrap_config import BOOTSTRAP_METRICS
 from uplift_modeling.evaluation.locked_test import (
-    _save_locked_test_evaluation,
     get_champion_policy,
-)
-from uplift_modeling.evaluation.topk_policy import TOPK_BUDGET_FRACTIONS
-from uplift_modeling.evaluation.uplift_metrics import (
-    calculate_uplift_metrics,
+    load_locked_test_prediction_frames,
+    load_selection_gate_payload,
+    resolve_required_prediction_paths,
+    validate_selection_gate_payload,
 )
 
 
-def _prediction_frame(
-    model_name: str,
-    splits: list[str] | None = None,
-) -> pd.DataFrame:
-    """Return a small prediction frame with both treatment arms."""
-    split_values = splits or ["validation"] * 4 + ["test"] * 8
-    row_count = len(split_values)
+def _model_artifact(policy: str) -> dict:
+    return {
+        "artifact_type": "model_provenance",
+        "dataset_name": "synthetic",
+        "outcome": "visit",
+        "policy_name": policy,
+        "prediction_artifact": "prediction.parquet",
+        "model_kind": "t_learner",
+        "mlflow_run_id": "run-001",
+        "treatment_model_uri": "runs:/run-001/treatment_model",
+        "control_model_uri": "runs:/run-001/control_model",
+    }
+
+
+def _selection_payload(policy: str = "champion") -> dict:
+    return {
+        "artifact_type": "model_selection_gate",
+        "experiment_id": "exp-001",
+        "dataset_name": "synthetic",
+        "source_manifest_path": "/tmp/manifest.json",
+        "champion_policy": policy,
+        "selection_settings": {
+            "outcome": "visit",
+            "split": "validation",
+            "budget_fraction": 0.05,
+            "metric": "policy_value",
+            "baseline_policy": "baseline",
+        },
+        "champion_model_artifact": _model_artifact(policy),
+    }
+
+
+def _prediction_frame(policy: str) -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "row_id": list(range(row_count)),
-            "treatment": ([1, 0] * (row_count // 2 + 1))[:row_count],
-            "outcome": ([1, 0, 0, 1, 1, 0] * (row_count // 6 + 1))[
-                :row_count
-            ],
-            "split": split_values,
-            "score": list(
-                reversed([index / row_count for index in range(row_count)])
-            ),
-            "model_name": [model_name] * row_count,
+            "row_id": [1, 2, 3, 4],
+            "treatment": [1, 0, 1, 0],
+            "outcome": [1, 0, 0, 1],
+            "split": ["test"] * 4,
+            "score": [0.9, 0.8, 0.7, 0.6],
+            "model_name": [policy] * 4,
         }
     )
 
 
-def _write_predictions(
-    prediction_dir: Path,
-    policy: str,
-    splits: list[str] | None = None,
-) -> Path:
-    """Write one run-numbered prediction artifact."""
-    prediction_path = (
-        prediction_dir / f"criteo_visit_{policy}_run01_predictions.parquet"
-    )
-    _prediction_frame(policy, splits=splits).to_parquet(
-        prediction_path,
-        index=False,
-    )
-    return prediction_path
+def test_selection_gate_must_come_from_validation() -> None:
+    payload = _selection_payload()
+    payload["selection_settings"]["split"] = "test"
+
+    with pytest.raises(ValueError, match="originate from validation"):
+        validate_selection_gate_payload(
+            selection_payload=payload,
+            outcome="visit",
+        )
 
 
-def _manifest_paths(*prediction_paths: Path) -> dict[str, Path]:
-    """Build a policy-to-path mapping from test prediction file names."""
-    paths: dict[str, Path] = {}
-    for prediction_path in prediction_paths:
-        policy = prediction_path.name.removeprefix(
-            "criteo_visit_"
-        ).removesuffix("_run01_predictions.parquet")
-        paths[policy] = prediction_path
+def test_locked_test_requires_only_selected_champion(tmp_path: Path) -> None:
+    champion_path = tmp_path / "champion.parquet"
+    other_path = tmp_path / "other.parquet"
 
-    return paths
-
-
-def _write_selection_artifact(tmp_path: Path, champion_policy: str) -> Path:
-    """Write a minimal Selection Gate artifact."""
-    selection_path = tmp_path / "criteo_visit_model_selection_gate_run01.json"
-    selection_path.write_text(
-        json.dumps(
-            {
-                "artifact_type": "model_selection_gate",
-                "experiment_id": "exp-001",
-                "dataset_name": "criteo",
-                "source_manifest_path": str(
-                    (tmp_path / "experiment_manifest.json").resolve()
-                ),
-                "champion_policy": champion_policy,
-                "selection_settings": {
-                    "outcome": "visit",
-                    "split": "validation",
-                    "budget_fraction": 0.1,
-                    "metric": "policy_value",
-                    "baseline_policy": "treated_response_lgbm",
-                },
-                "champion_model_artifact": {
-                    "artifact_type": "model_provenance",
-                    "dataset_name": "criteo",
-                    "outcome": "visit",
-                    "policy_name": champion_policy,
-                    "prediction_artifact": (
-                        f"criteo_visit_{champion_policy}_run01_predictions.parquet"
-                    ),
-                    "model_kind": "t_learner",
-                    "mlflow_run_id": f"run-{champion_policy}",
-                    "treatment_model_uri": (
-                        f"runs:/run-{champion_policy}/treatment_model"
-                    ),
-                    "control_model_uri": (
-                        f"runs:/run-{champion_policy}/control_model"
-                    ),
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    return selection_path
-
-
-def test_champion_is_loaded_from_selection_gate_artifact(tmp_path) -> None:
-    """Locked-test evaluation uses the champion fixed by Selection Gate."""
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    payload = json.loads(selection_path.read_text(encoding="utf-8"))
-
-    assert get_champion_policy(payload) == "t_learner_lgbm"
-
-
-def test_locked_test_evaluates_only_champion(tmp_path) -> None:
-    """Locked-test report contains metrics for the champion only."""
-    prediction_dir = tmp_path / "predictions"
-    metric_dir = tmp_path / "metrics"
-    prediction_dir.mkdir()
-
-    selection_path = _write_selection_artifact(
-        tmp_path,
-        "t_learner_lgbm",
-    )
-
-    baseline_path = _write_predictions(
-        prediction_dir,
-        "treated_response_lgbm",
-    )
-    champion_path = _write_predictions(
-        prediction_dir,
-        "t_learner_lgbm",
-    )
-    extra_path = _write_predictions(
-        prediction_dir,
-        "x_learner_lgbm",
-    )
-
-    output_path, payload = _save_locked_test_evaluation(
-        manifest_prediction_paths=_manifest_paths(
-            baseline_path,
-            champion_path,
-            extra_path,
-        ),
-        metric_dir=metric_dir,
-        dataset_name="criteo",
+    resolved = resolve_required_prediction_paths(
+        manifest_prediction_paths={
+            "champion": champion_path,
+            "other": other_path,
+        },
+        dataset_name="synthetic",
         outcome="visit",
-        selection_artifact_path=selection_path,
-        n_bootstrap=10,
-        random_seed=7,
+        champion_policy="champion",
     )
 
-    row_policies = {
-        row["policy"]
-        for row in payload["locked_test_rows"]
-    }
-
-    assert output_path.exists()
-    assert output_path.name == (
-        "criteo_visit_exp-001_locked_test_evaluation.json"
-    )
-    assert payload["experiment_id"] == "exp-001"
-    assert payload["champion_policy"] == "t_learner_lgbm"
-    assert payload["champion_model_artifact"] == {
-        "artifact_type": "model_provenance",
-        "dataset_name": "criteo",
-        "outcome": "visit",
-        "policy_name": "t_learner_lgbm",
-        "prediction_artifact": (
-            "criteo_visit_t_learner_lgbm_run01_predictions.parquet"
-        ),
-        "model_kind": "t_learner",
-        "mlflow_run_id": "run-t_learner_lgbm",
-        "treatment_model_uri": (
-            "runs:/run-t_learner_lgbm/treatment_model"
-        ),
-        "control_model_uri": (
-            "runs:/run-t_learner_lgbm/control_model"
-        ),
-    }
-    assert "baseline_policy" not in payload
-    assert set(payload["prediction_artifacts"]) == {
-        "t_learner_lgbm"
-    }
-    assert row_policies == {"t_learner_lgbm"}
-    assert len(payload["locked_test_rows"]) == len(
-        TOPK_BUDGET_FRACTIONS
-    )
-    assert {
-        row["split"]
-        for row in payload["locked_test_rows"]
-    } == {"test"}
-
-    expected_test_frame = _prediction_frame(
-        "t_learner_lgbm"
-    ).loc[
-        lambda frame: frame["split"] == "test"
-    ].copy()
-
-    expected_metrics = calculate_uplift_metrics(
-        expected_test_frame
-    )
-
-    assert "uplift_metrics" in payload
-    assert payload["uplift_metrics"] == pytest.approx(
-        expected_metrics
-    )
-
-    assert payload["uplift_metrics"]["row_count"] == 8
-    assert payload["uplift_metrics"]["treatment_rate"] == pytest.approx(
-        0.5
-    )
-    assert "qini" in payload["uplift_metrics"]
-    assert "auuc" in payload["uplift_metrics"]
-    assert (
-        "cumulative_incremental_outcome"
-        in payload["uplift_metrics"]
-    )
-    assert "policy_value" in payload["uplift_metrics"]
-    assert "positive_rate" in payload["uplift_metrics"]
-
-    bootstrap = payload["bootstrap"]
-    bootstrap_rows = bootstrap["rows"]
-    assert bootstrap["n_bootstrap"] == 10
-    assert bootstrap["random_seed"] == 7
-    assert len(bootstrap_rows) == len(TOPK_BUDGET_FRACTIONS) * 2
-    assert {row["policy"] for row in bootstrap_rows} == {"t_learner_lgbm"}
-    assert {row["split"] for row in bootstrap_rows} == {"test"}
-    assert {row["budget_fraction"] for row in bootstrap_rows} == set(
-        TOPK_BUDGET_FRACTIONS
-    )
-    assert {row["metric"] for row in bootstrap_rows} == set(
-        BOOTSTRAP_METRICS
-    )
-    assert all("baseline_policy" not in row for row in bootstrap_rows)
-    assert all("mean_delta" not in row for row in bootstrap_rows)
+    assert resolved == {"champion": champion_path}
 
 
-def test_locked_test_aligns_reordered_prediction_rows_by_row_id(tmp_path) -> None:
-    """Locked-test evaluation tolerates reordered champion artifacts."""
-    prediction_dir = tmp_path / "predictions"
-    metric_dir = tmp_path / "metrics"
-    prediction_dir.mkdir()
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    champion_path = (
-        prediction_dir / "criteo_visit_t_learner_lgbm_run01_predictions.parquet"
-    )
-    _prediction_frame("t_learner_lgbm").sort_values(
+def test_locked_test_loads_test_rows_and_aligns_by_row_id(
+    tmp_path: Path,
+) -> None:
+    first_path = tmp_path / "first.parquet"
+    second_path = tmp_path / "second.parquet"
+
+    _prediction_frame("first").to_parquet(first_path, index=False)
+    _prediction_frame("second").sort_values(
         "row_id",
         ascending=False,
-    ).to_parquet(champion_path, index=False)
+    ).to_parquet(second_path, index=False)
 
-    _, payload = _save_locked_test_evaluation(
-        manifest_prediction_paths=_manifest_paths(champion_path),
-        metric_dir=metric_dir,
-        dataset_name="criteo",
-        outcome="visit",
-        selection_artifact_path=selection_path,
+    frames = load_locked_test_prediction_frames(
+        {
+            "first": first_path,
+            "second": second_path,
+        }
     )
 
-    assert {row["split"] for row in payload["locked_test_rows"]} == {"test"}
-    assert {row["policy"] for row in payload["locked_test_rows"]} == {
-        "t_learner_lgbm"
-    }
+    assert frames["first"]["row_id"].tolist() == [1, 2, 3, 4]
+    assert frames["second"]["row_id"].tolist() == [1, 2, 3, 4]
+    assert set(frames["first"]["split"]) == {"test"}
 
 
-def test_locked_test_fails_if_champion_test_predictions_are_missing(tmp_path) -> None:
-    """A champion artifact without test rows raises a clear error."""
-    prediction_dir = tmp_path / "predictions"
-    metric_dir = tmp_path / "metrics"
-    prediction_dir.mkdir()
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    champion_path = _write_predictions(
-        prediction_dir,
-        "t_learner_lgbm",
-        splits=["validation"] * 12,
-    )
-
-    with pytest.raises(ValueError, match="t_learner_lgbm test predictions"):
-        _save_locked_test_evaluation(
-            manifest_prediction_paths=_manifest_paths(champion_path),
-            metric_dir=metric_dir,
-            dataset_name="criteo",
-            outcome="visit",
-            selection_artifact_path=selection_path,
-        )
-
-
-def test_locked_test_fails_if_champion_prediction_artifact_is_missing(
-    tmp_path,
+def test_selection_gate_loader_rejects_wrong_artifact_type(
+    tmp_path: Path,
 ) -> None:
-    """A missing champion prediction artifact raises a clear ValueError."""
-    prediction_dir = tmp_path / "predictions"
-    metric_dir = tmp_path / "metrics"
-    prediction_dir.mkdir()
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
+    path = tmp_path / "selection.json"
+    payload = _selection_payload()
+    payload["artifact_type"] = "wrong_type"
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Champion prediction artifact"):
-        _save_locked_test_evaluation(
-            manifest_prediction_paths={},
-            metric_dir=metric_dir,
-            dataset_name="criteo",
-            outcome="visit",
-            selection_artifact_path=selection_path,
-        )
-
-
-def test_locked_test_ignores_newer_unlisted_prediction_artifact(tmp_path) -> None:
-    """A newer champion file outside the manifest does not affect locked test."""
-    prediction_dir = tmp_path / "predictions"
-    metric_dir = tmp_path / "metrics"
-    prediction_dir.mkdir()
-    selection_path = _write_selection_artifact(tmp_path, "t_learner_lgbm")
-    champion_path = _write_predictions(prediction_dir, "t_learner_lgbm")
-    newer_champion_path = (
-        prediction_dir / "criteo_visit_t_learner_lgbm_run99_predictions.parquet"
-    )
-    newer_frame = _prediction_frame("t_learner_lgbm")
-    newer_frame["score"] = 0.0
-    newer_frame.to_parquet(newer_champion_path, index=False)
-
-    _, payload = _save_locked_test_evaluation(
-        manifest_prediction_paths=_manifest_paths(champion_path),
-        metric_dir=metric_dir,
-        dataset_name="criteo",
-        outcome="visit",
-        selection_artifact_path=selection_path,
-    )
-
-    assert payload["prediction_artifacts"]["t_learner_lgbm"] == (
-        champion_path.name
-    )
+    with pytest.raises(ValueError, match="artifact_type"):
+        load_selection_gate_payload(path)

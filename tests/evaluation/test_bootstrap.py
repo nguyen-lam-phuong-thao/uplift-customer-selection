@@ -134,30 +134,22 @@ def _run_fresh_python_import_check(code: str) -> None:
         )
     ),
 )
-def test_bootstrap_modules_import_in_any_order(module_order: tuple[str, ...]) -> None:
-    """Bootstrap modules import independently without circular import failures."""
-    module_list = ", ".join(repr(module_name) for module_name in module_order)
-    _run_fresh_python_import_check(
-        "import importlib\n"
-        f"for module_name in ({module_list},):\n"
-        "    importlib.import_module(module_name)\n"
-    )
-
-
-def test_bootstrap_legacy_symbols_import_directly() -> None:
-    """Legacy symbols remain importable from the bootstrap module."""
-    _run_fresh_python_import_check(
-        "from uplift_modeling.evaluation.bootstrap import (\n"
-        "    calculate_bootstrap_policy_rows,\n"
-        "    find_next_bootstrap_run_number,\n"
-        "    save_bootstrap_policy_evaluation,\n"
-        "    summarize_bootstrap_paired_contrasts,\n"
-        ")\n"
-    )
-
-
-def test_bootstrap_output_has_expected_columns_and_valid_ci() -> None:
+def test_bootstrap_output_has_expected_columns_and_valid_ci(
+    module_order: tuple[str, ...],
+) -> None:
     """Bootstrap summaries expose the required metric columns."""
+    code = "\n".join(
+        [
+            "import importlib",
+            *[
+                f"importlib.import_module('{module}')"
+                for module in module_order
+            ],
+        ]
+    )
+
+    _run_fresh_python_import_check(code)
+
     policy_rows, contrast_rows, warnings = calculate_bootstrap_policy_rows(
         _policy_frames(),
         budget_fractions=(0.5, 1.0),

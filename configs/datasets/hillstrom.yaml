@@ -1,0 +1,37 @@
+dataset:
+  name: hillstrom
+  prepared_path: data/interim/hillstrom/hillstrom_modeling_base.parquet
+
+schema:
+  row_id_column: row_id
+  treatment_column: treatment
+  split_column: split
+
+  feature_columns:
+    - recency
+    - history
+    - mens
+    - womens
+    - newbie
+    - zip_code_rural
+    - zip_code_surburban
+    - zip_code_urban
+    - channel_multichannel
+    - channel_phone
+    - channel_web
+
+  outcome_columns:
+    - visit
+    - conversion
+
+split:
+  assign_if_missing: true
+  train_size: 0.6
+  validation_size: 0.2
+  test_size: 0.2
+  random_state: 42
+
+outputs:
+  processed_paths:
+    visit: data/processed/hillstrom/hillstrom_decision_visit.parquet
+    conversion: data/processed/hillstrom/hillstrom_decision_conversion.parquet

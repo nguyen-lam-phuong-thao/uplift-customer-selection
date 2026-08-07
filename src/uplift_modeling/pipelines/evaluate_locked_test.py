@@ -11,7 +11,9 @@ import pandas as pd
 
 from uplift_modeling.artifacts.manifest import (
     load_experiment_manifest,
+    resolve_manifest_config_paths,
     resolve_prediction_paths,
+    resolve_model_artifacts,
     validate_model_artifacts_match_predictions,
 )
 from uplift_modeling.artifacts.model_provenance import (
@@ -21,8 +23,8 @@ from uplift_modeling.artifacts.model_provenance import (
 from uplift_modeling.artifacts.predictions import save_prediction_parquet_in_batches
 from uplift_modeling.data.dataset_spec import (
     DatasetSpec,
-    get_dataset_spec,
     validate_supported_outcome,
+    load_dataset_config,
 )
 from uplift_modeling.evaluation.bootstrap_config import (
     DEFAULT_BOOTSTRAP_RANDOM_SEED,
@@ -37,8 +39,7 @@ from uplift_modeling.evaluation.locked_test import (
     validate_selection_gate_payload,
 )
 from uplift_modeling.models.scoring import build_policy_score_batch
-from uplift_modeling.pipelines.train_criteo_response_model import (
-    get_processed_data_path,
+from uplift_modeling.pipelines.train_response_model import (
     get_split_frame,
     load_training_frame,
 )
@@ -58,17 +59,10 @@ LOCKED_TEST_SPLIT = "test"
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for locked-test evaluation."""
     parser = argparse.ArgumentParser(
-        description="Score and evaluate the fixed Selection Gate champion on test."
-    )
-    parser.add_argument(
-        "--config",
-        required=True,
-        help="Path to the YAML config.",
-    )
-    parser.add_argument(
-        "--selection-artifact",
-        required=True,
-        help="Path to the model-selection gate JSON artifact.",
+        description=(
+            "Score and evaluate the fixed Selection Gate champion "
+            "on the locked test split."
+        )
     )
     parser.add_argument(
         "--manifest",
@@ -76,9 +70,9 @@ def parse_args() -> argparse.Namespace:
         help="Path to the validation experiment manifest JSON artifact.",
     )
     parser.add_argument(
-        "--outcome",
-        default="visit",
-        help="Outcome to evaluate. Defaults to visit.",
+        "--selection-artifact",
+        required=True,
+        help="Path to the model-selection gate JSON artifact.",
     )
     parser.add_argument(
         "--n-bootstrap",
@@ -93,27 +87,6 @@ def parse_args() -> argparse.Namespace:
         help="Random seed for locked-test Top-K bootstrap CIs.",
     )
     return parser.parse_args()
-
-
-def get_locked_test_split(config: dict[str, Any]) -> str:
-    """Return and validate the locked-test split name."""
-    locked_test_config = config.get("locked_test", {})
-    if locked_test_config is None:
-        locked_test_config = {}
-    if not isinstance(locked_test_config, dict):
-        raise ValueError("Config section 'locked_test' must be a mapping.")
-
-    test_split = locked_test_config.get(
-        "split",
-        LOCKED_TEST_SPLIT,
-    )
-    if test_split != LOCKED_TEST_SPLIT:
-        raise ValueError(
-            "Locked-test evaluation may use the test split only. "
-            f"Expected '{LOCKED_TEST_SPLIT}', received '{test_split}'."
-        )
-
-    return LOCKED_TEST_SPLIT
 
 
 def get_experiment_name(config: dict[str, Any]) -> str:
@@ -144,27 +117,32 @@ def load_locked_test_source_frame(
     parquet_path: Path,
     dataset_spec: DatasetSpec,
     outcome: str,
-    test_split: str = LOCKED_TEST_SPLIT,
 ) -> tuple[pd.DataFrame, str]:
-    """Load the prepared dataset and return the existing fixed test rows."""
+    """Load the existing fixed test split without resplitting."""
     dataframe, target_column = load_training_frame(
         parquet_path=parquet_path,
         dataset_spec=dataset_spec,
         requested_outcome=outcome,
     )
+
     test_frame = get_split_frame(
         dataframe=dataframe,
         split_column=dataset_spec.split_column,
-        split_value=test_split,
+        split_value=LOCKED_TEST_SPLIT,
     )
 
     observed_splits = {
-        str(split) for split in test_frame[dataset_spec.split_column].unique()
+        str(split)
+        for split in test_frame[
+            dataset_spec.split_column
+        ].unique()
     }
-    if observed_splits != {test_split}:
+
+    if observed_splits != {LOCKED_TEST_SPLIT}:
         raise ValueError(
             "Locked-test source frame must contain only split "
-            f"'{test_split}'. Received: {sorted(observed_splits)}."
+            f"'{LOCKED_TEST_SPLIT}'. "
+            f"Received: {sorted(observed_splits)}."
         )
 
     return test_frame, target_column
@@ -242,113 +220,109 @@ def save_locked_test_model_provenance(
 
 
 def evaluate_locked_test(
-    config_path: Path,
     manifest_path: Path,
     selection_artifact_path: Path,
-    outcome: str,
     n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
     random_seed: int = DEFAULT_BOOTSTRAP_RANDOM_SEED,
 ) -> Path:
-    """Score the fixed champion on test, then save reporting."""
+    """Score the exact validation champion on the fixed test split."""
     project_root = get_project_root(Path(__file__))
-    config = load_yaml_config(config_path)
-    data_config = get_config_section(config, "data")
-    training_config = get_config_section(config, "training")
-    output_config = get_config_section(config, "outputs")
-    dataset_spec = get_dataset_spec(str(data_config["dataset_name"]))
-    dataset_name = dataset_spec.name
-    validate_supported_outcome(dataset_spec, outcome)
+    manifest = load_experiment_manifest(manifest_path)
 
-    selection_payload = load_selection_gate_payload(selection_artifact_path)
+    dataset_name = str(manifest["dataset_name"])
+    outcome = str(manifest["outcome"])
+    experiment_id = manifest.get("experiment_id")
+
+    if not isinstance(experiment_id, str) or not experiment_id:
+        raise ValueError(
+            "Experiment manifest must contain a non-empty "
+            "'experiment_id'."
+        )
+
+    dataset_config_path, modeling_config_path = (
+        resolve_manifest_config_paths(
+            manifest=manifest,
+            manifest_path=manifest_path,
+            project_root=project_root,
+        )
+    )
+
+    dataset_config = load_dataset_config(
+        dataset_config_path,
+        project_root=project_root,
+    )
+
+    modeling_config = load_yaml_config(
+        modeling_config_path,
+    )
+
+    dataset_spec = dataset_config.spec
+
+    validate_supported_outcome(
+        dataset_spec,
+        outcome,
+    )
+
+    if dataset_spec.name != dataset_name:
+        raise ValueError(
+            "Manifest dataset_name does not match dataset config. "
+            f"Manifest: '{dataset_name}', "
+            f"dataset config: '{dataset_spec.name}'."
+        )
+
+    training_config = get_config_section(
+        modeling_config,
+        "training",
+    )
+    output_config = get_config_section(
+        modeling_config,
+        "outputs",
+    )
+
+    selection_payload = load_selection_gate_payload(
+        selection_artifact_path
+    )
+
     champion_policy = validate_selection_gate_payload(
         selection_payload=selection_payload,
         outcome=outcome,
     )
-    required_policies = (champion_policy,)
-    champion_model_artifact = selection_payload["champion_model_artifact"]
 
-    model_artifacts = {
-        champion_policy: champion_model_artifact,
-    }
-
-    manifest = load_experiment_manifest(manifest_path)
     validate_selection_source_manifest(
         selection_payload=selection_payload,
         manifest_path=manifest_path,
     )
 
-    manifest_config_value = manifest.get("config_path")
-
-    if not isinstance(manifest_config_value, str) or not manifest_config_value:
+    # Selection and manifest must belong to the same experiment.
+    if selection_payload.get("experiment_id") != experiment_id:
         raise ValueError(
-            "Experiment manifest must contain a non-empty "
-            "'config_path'."
+            "Selection Gate artifact and experiment manifest "
+            "must have the same experiment_id."
         )
 
-    manifest_config_path = Path(
-        manifest_config_value
-    ).expanduser()
-
-    if not manifest_config_path.is_absolute():
-        manifest_config_path = (
-            project_root / manifest_config_path
-        ).resolve()
-    else:
-        manifest_config_path = manifest_config_path.resolve()
-
-    if manifest_config_path != config_path.resolve():
+    if selection_payload.get("dataset_name") != dataset_name:
         raise ValueError(
-            "Locked Test config must match the config recorded "
-            "in the experiment manifest. "
-            f"Runtime config: {config_path.resolve()}; "
-            f"manifest config: {manifest_config_path}."
+            "Selection Gate artifact dataset_name does not "
+            "match experiment manifest."
         )
 
-    selection_experiment_id = selection_payload.get("experiment_id")
-    manifest_experiment_id = manifest.get("experiment_id")
-
-    if (
-        not isinstance(selection_experiment_id, str)
-        or not selection_experiment_id
-    ):
-        raise ValueError(
-            "Selection Gate artifact must contain a non-empty "
-            "'experiment_id'."
-        )
-
-    if selection_experiment_id != manifest_experiment_id:
-        raise ValueError(
-            "Selection Gate artifact and experiment manifest must "
-            "have the same experiment_id. "
-            f"Selection: {selection_experiment_id!r}; "
-            f"manifest: {manifest_experiment_id!r}."
-        )
-
-    selection_dataset_name = selection_payload.get(
-        "dataset_name"
+    champion_model_artifact = selection_payload.get(
+        "champion_model_artifact"
     )
-    manifest_dataset_name = manifest.get("dataset_name")
 
-    if (
-        selection_dataset_name != manifest_dataset_name
-        or selection_dataset_name != dataset_name
-    ):
+    if not isinstance(champion_model_artifact, dict):
         raise ValueError(
-            "Selection Gate artifact, experiment manifest, and "
-            "config must have the same dataset_name. "
-            f"Selection: {selection_dataset_name!r}; "
-            f"manifest: {manifest_dataset_name!r}; "
-            f"config: {dataset_name!r}."
+            "Selection Gate artifact must contain "
+            "'champion_model_artifact'."
         )
 
-    manifest_outcome = manifest.get("outcome")
-
-    if manifest_outcome != outcome:
+    if (
+        champion_model_artifact.get("policy_name")
+        != champion_policy
+    ):
         raise ValueError(
-            "Experiment manifest and Locked Test request must have "
-            "the same outcome. "
-            f"Manifest: {manifest_outcome!r}; "
-            f"requested: {outcome!r}."
+            "Champion model provenance policy_name does not "
+            "match champion_policy."
         )
 
     if (
@@ -357,13 +331,32 @@ def evaluate_locked_test(
     ):
         raise ValueError(
             "Champion model provenance dataset_name does not "
-            "match the Locked Test dataset."
+            "match experiment dataset."
         )
 
     if champion_model_artifact.get("outcome") != outcome:
         raise ValueError(
-            "Champion model provenance outcome does not match "
-            "the Locked Test outcome."
+            "Champion model provenance outcome does not "
+            "match experiment outcome."
+        )
+
+    required_policies = (
+        champion_policy,
+    )
+
+    manifest_model_artifacts = resolve_model_artifacts(
+        manifest=manifest,
+        required_policies=required_policies,
+    )
+
+    manifest_champion_artifact = (
+        manifest_model_artifacts[champion_policy]
+    )
+
+    if champion_model_artifact != manifest_champion_artifact:
+        raise ValueError(
+            "Selection Gate champion_model_artifact does not "
+            "match the exact model recorded in the experiment manifest."
         )
 
     validation_prediction_paths = resolve_prediction_paths(
@@ -375,74 +368,96 @@ def evaluate_locked_test(
         required_policies=required_policies,
     )
 
+    model_artifacts = {
+        champion_policy: champion_model_artifact,
+    }
+
     validate_model_artifacts_match_predictions(
         model_artifacts=model_artifacts,
         prediction_paths=validation_prediction_paths,
     )
-    test_split = get_locked_test_split(config)
-    metric_dir = resolve_project_path(output_config["metric_dir"], project_root)
+
+    metric_dir = resolve_project_path(
+        output_config["metric_dir"],
+        project_root,
+    )
+
     prediction_dir = resolve_project_path(
         output_config["prediction_dir"],
         project_root,
     )
+
     final_evaluation_path = build_locked_test_evaluation_path(
         metric_dir=metric_dir,
         dataset_name=dataset_name,
         outcome=outcome,
-        experiment_id=selection_experiment_id,
+        experiment_id=experiment_id,
     )
+
     if final_evaluation_path.exists():
         output_path, payload = load_existing_locked_test_evaluation(
             output_path=final_evaluation_path,
-            experiment_id=selection_experiment_id,
+            experiment_id=experiment_id,
             champion_policy=champion_policy,
             champion_model_artifact=champion_model_artifact,
         )
-        LOGGER.info("Reusing locked-test evaluation JSON: %s", output_path)
+
+        LOGGER.info(
+            "Reusing locked-test evaluation JSON: %s",
+            output_path,
+        )
         LOGGER.info(
             "Locked-test evaluation result:\n%s",
-            json.dumps(payload, indent=2, sort_keys=True),
+            json.dumps(
+                payload,
+                indent=2,
+                sort_keys=True,
+            ),
         )
+
         return output_path
 
-    deterministic_prediction_path = build_locked_test_prediction_path(
-        prediction_dir=prediction_dir,
-        dataset_name=dataset_name,
-        outcome=outcome,
-        champion_policy=champion_policy,
-        experiment_id=selection_experiment_id,
+    deterministic_prediction_path = (
+        build_locked_test_prediction_path(
+            prediction_dir=prediction_dir,
+            dataset_name=dataset_name,
+            outcome=outcome,
+            champion_policy=champion_policy,
+            experiment_id=experiment_id,
+        )
     )
+
     if deterministic_prediction_path.exists():
         raise ValueError(
             "Incomplete Final Evaluation state: prediction exists "
             "without final report."
         )
-
-    processed_data_path = get_processed_data_path(
-        data_config=data_config,
-        outcome=outcome,
-        project_root=project_root,
+    processed_data_path = (
+        dataset_config.processed_paths[outcome]
     )
+
     test_frame, target_column = load_locked_test_source_frame(
         parquet_path=processed_data_path,
         dataset_spec=dataset_spec,
         outcome=outcome,
-        test_split=test_split,
+    )
+    setup_mlflow(
+        get_experiment_name(modeling_config)
     )
 
-    setup_mlflow(get_experiment_name(config))
     locked_test_prediction_paths = save_locked_test_predictions(
         test_frame=test_frame,
         dataset_spec=dataset_spec,
         target_column=target_column,
         dataset_name=dataset_name,
         outcome=outcome,
-        experiment_id=selection_experiment_id,
+        experiment_id=experiment_id,
         model_artifacts=model_artifacts,
         prediction_dir=prediction_dir,
-        batch_size=int(training_config["prediction_batch_size"]),
+        batch_size=int(
+            training_config["prediction_batch_size"]
+        ),
     )
-
     output_path, _ = _save_locked_test_evaluation(
         manifest_prediction_paths=locked_test_prediction_paths,
         metric_dir=metric_dir,
@@ -454,30 +469,40 @@ def evaluate_locked_test(
     )
     return output_path
 
-
 def main() -> None:
     """CLI entry point."""
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+        format=(
+            "%(asctime)s %(levelname)s "
+            "%(name)s - %(message)s"
+        ),
     )
+
     args = parse_args()
     project_root = get_project_root(Path(__file__))
-    config_path = resolve_project_path(args.config, project_root)
-    manifest_path = resolve_project_path(args.manifest, project_root)
+
+    manifest_path = resolve_project_path(
+        args.manifest,
+        project_root,
+    )
+
     selection_artifact_path = resolve_project_path(
         args.selection_artifact,
         project_root,
     )
+
     output_path = evaluate_locked_test(
-        config_path=config_path,
         manifest_path=manifest_path,
         selection_artifact_path=selection_artifact_path,
-        outcome=args.outcome,
         n_bootstrap=args.n_bootstrap,
         random_seed=args.random_seed,
     )
-    LOGGER.info("Locked-test evaluation artifact: %s", output_path)
+
+    LOGGER.info(
+        "Locked-test evaluation artifact: %s",
+        output_path,
+    )
 
 
 if __name__ == "__main__":

@@ -62,25 +62,37 @@ def build_experiment_manifest(
     experiment_id: str,
     dataset_name: str,
     outcome: str,
-    config_path: str | Path,
+    dataset_config_path: str | Path,
+    modeling_config_path: str | Path,
     prediction_artifacts: dict[str, str | Path],
     model_artifacts: dict[str, dict[str, Any]] | None = None,
     project_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Build an experiment manifest payload."""
+    """Build an immutable validation experiment manifest."""
     payload = {
         "artifact_type": EXPERIMENT_MANIFEST_ARTIFACT_TYPE,
         "experiment_id": experiment_id,
         "dataset_name": dataset_name,
         "outcome": outcome,
-        "config_path": _format_manifest_path(config_path, project_root),
+        "dataset_config_path": _format_manifest_path(
+            dataset_config_path,
+            project_root,
+        ),
+        "modeling_config_path": _format_manifest_path(
+            modeling_config_path,
+            project_root,
+        ),
         "prediction_artifacts": {
-            policy_name: _format_manifest_path(prediction_path, project_root)
+            policy_name: _format_manifest_path(
+                prediction_path,
+                project_root,
+            )
             for policy_name, prediction_path in sorted(
                 prediction_artifacts.items()
             )
         },
     }
+
     if model_artifacts:
         payload["model_artifacts"] = model_artifacts
 
@@ -89,6 +101,7 @@ def build_experiment_manifest(
         dataset_name=dataset_name,
         outcome=outcome,
     )
+
     return payload
 
 
@@ -151,17 +164,24 @@ def validate_experiment_manifest(
         )
 
     manifest_outcome = manifest.get("outcome")
+
     if manifest_outcome != outcome:
         raise ValueError(
             "Experiment manifest outcome does not match requested outcome. "
             f"Expected '{outcome}', received '{manifest_outcome}'."
         )
 
-    if not _has_config_identity(manifest):
-        raise ValueError(
-            "Experiment manifest must contain a non-empty 'config_path' "
-            "or 'config_identity'."
-        )
+    for config_key in (
+        "dataset_config_path",
+        "modeling_config_path",
+    ):
+        config_value = manifest.get(config_key)
+
+        if not isinstance(config_value, str) or not config_value:
+            raise ValueError(
+                "Experiment manifest must contain a non-empty "
+                f"'{config_key}'."
+            )
 
     prediction_artifacts = manifest.get("prediction_artifacts")
     if not isinstance(prediction_artifacts, dict) or not prediction_artifacts:
@@ -250,6 +270,42 @@ def resolve_prediction_paths(
         resolved_paths[policy_name] = prediction_path
 
     return resolved_paths
+
+
+def resolve_manifest_config_paths(
+    manifest: Mapping[str, Any],
+    manifest_path: Path,
+    project_root: Path | None = None,
+) -> tuple[Path, Path]:
+    """Resolve dataset and modeling configs recorded by the manifest."""
+    dataset_config_value = manifest.get("dataset_config_path")
+    modeling_config_value = manifest.get("modeling_config_path")
+
+    if not isinstance(dataset_config_value, str) or not dataset_config_value:
+        raise ValueError(
+            "Experiment manifest must contain a non-empty "
+            "'dataset_config_path'."
+        )
+
+    if not isinstance(modeling_config_value, str) or not modeling_config_value:
+        raise ValueError(
+            "Experiment manifest must contain a non-empty "
+            "'modeling_config_path'."
+        )
+
+    dataset_config_path = _resolve_manifest_file_path(
+        dataset_config_value,
+        manifest_path,
+        project_root,
+    )
+
+    modeling_config_path = _resolve_manifest_file_path(
+        modeling_config_value,
+        manifest_path,
+        project_root,
+    )
+
+    return dataset_config_path, modeling_config_path
 
 
 def validate_prediction_artifact_model_name(
@@ -344,16 +400,6 @@ def validate_model_artifacts_match_predictions(
                 f"'{prediction_artifact}', but the manifest references "
                 f"'{prediction_path.name}'."
             )
-
-
-def _has_config_identity(manifest: dict[str, Any]) -> bool:
-    """Return whether the manifest has a config path or identity."""
-    for key in ("config_path", "config_identity"):
-        value = manifest.get(key)
-        if isinstance(value, str) and value:
-            return True
-
-    return False
 
 
 def _resolve_manifest_file_path(

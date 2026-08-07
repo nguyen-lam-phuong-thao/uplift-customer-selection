@@ -6,16 +6,16 @@ from uplift_modeling.evaluation.bootstrap_config import DEFAULT_N_BOOTSTRAP
 from uplift_modeling.pipelines.create_experiment_manifest import (
     create_experiment_manifest,
 )
-from uplift_modeling.pipelines.evaluate_criteo_predictions import (
+from uplift_modeling.pipelines.evaluate_predictions import (
     evaluate_predictions,
 )
-from uplift_modeling.pipelines.train_criteo_response_model import (
+from uplift_modeling.pipelines.train_response_model import (
     train_response_pipeline,
 )
-from uplift_modeling.pipelines.train_criteo_t_learner import (
+from uplift_modeling.pipelines.train_t_learner import (
     train_t_learner_pipeline,
 )
-from uplift_modeling.pipelines.train_criteo_x_learner import (
+from uplift_modeling.pipelines.train_x_learner import (
     train_x_learner_pipeline,
 )
 from uplift_modeling.utils.config import (
@@ -23,25 +23,41 @@ from uplift_modeling.utils.config import (
     load_yaml_config,
     resolve_project_path,
 )
-
-LOGGER = logging.getLogger(__name__)
-
-SHARED_CONFIG_SECTIONS = (
-    "project",
-    "data",
-    "training",
-    "outputs",
-    "selection",
+from uplift_modeling.data.dataset_spec import(
+    load_dataset_config,
+    validate_supported_outcome
 )
+from uplift_modeling.models.config import resolve_model_candidates
+from uplift_modeling.models.scoring import (
+    RESPONSE_MODEL_KIND,
+    T_LEARNER_MODEL_KIND,
+    X_LEARNER_MODEL_KIND,
+)
+TRAIN_PIPELINES = {
+    RESPONSE_MODEL_KIND: train_response_pipeline,
+    T_LEARNER_MODEL_KIND: train_t_learner_pipeline,
+    X_LEARNER_MODEL_KIND: train_x_learner_pipeline,
+}
+LOGGER = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Train candidates, create an exact experiment manifest, "
+            "Train configured candidates, create an experiment manifest,"
             "evaluate validation predictions, and select a champion."
         )
+    )
+    parser.add_argument(
+            "--dataset-config",
+            required=True,
+            help="Path to the dataset YAML config.",
+        )
+    parser.add_argument(
+        "--modeling-config",
+        required=True,
+        help="Path to the shared modeling YAML config.",
     )
     parser.add_argument(
         "--experiment-id",
@@ -50,21 +66,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--outcome",
-        choices=("visit", "conversion"),
-        default= "visit",
-        help="Outcome to model and evaluate.",
-    )
-    parser.add_argument(
-        "--response-config",
-        default="configs/modeling/criteo_response_lgbm.yaml",
-    )
-    parser.add_argument(
-        "--t-learner-config",
-        default="configs/modeling/t_learner.yaml",
-    )
-    parser.add_argument(
-        "--x-learner-config",
-        default="configs/modeling/x_learner.yaml",
+        required=True,
+        help="Outcome column to train and evaluate.",
     )
     parser.add_argument(
         "--top-fraction",
@@ -89,77 +92,94 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def validate_shared_config_sections(config_paths: tuple[Path, ...],) -> None:
-    """Require candidate configs to describe the same experiment context."""
-    configs = [(config_path, load_yaml_config(config_path)) for config_path in config_paths]
-    reference_path, reference_config = configs[0]
+def train_configured_candidates(
+    dataset_config_path: Path,
+    modeling_config_path: Path,
+    modeling_config: dict,
+    outcome: str,
+) -> dict[str, Path]:
+    """Train every candidate declared in the shared modeling config."""
+    candidates = resolve_model_candidates(modeling_config)
 
-    for config_path, config in configs[1:]:
-        mismatched_sections = [
-            section
-            for section in SHARED_CONFIG_SECTIONS
-            if config.get(section) != reference_config.get(section)
-        ]
+    prediction_artifacts: dict[str, Path] = {}
 
-        if mismatched_sections:
+    for candidate in candidates:
+        train_pipeline = TRAIN_PIPELINES.get(candidate.kind)
+
+        if train_pipeline is None:
             raise ValueError(
-                "Candidate configs must use identical shared experiment"
-                f"sections. Reference: {reference_path};"
-                f"mismatched config: {config_path};"
-                f"sections: {mismatched_sections}."
+                f"No training pipeline registered for model kind "
+                f"'{candidate.kind}'."
             )
+
+        model_name, prediction_path = train_pipeline(
+            dataset_config_path=dataset_config_path,
+            modeling_config_path=modeling_config_path,
+            outcome=outcome,
+        )
+
+        if model_name != candidate.name:
+            raise ValueError(
+                f"Training pipeline for kind '{candidate.kind}' returned "
+                f"model name '{model_name}', but modeling config declares "
+                f"'{candidate.name}'."
+            )
+
+        if model_name in prediction_artifacts:
+            raise ValueError(
+                f"Duplicate prediction artifact policy name: {model_name}"
+            )
+
+        prediction_artifacts[model_name] = prediction_path
+
+    return prediction_artifacts
 
 
 def run_experiment(
+    dataset_config_path: Path,
+    modeling_config_path: Path,
     experiment_id: str,
     outcome: str,
-    response_config_path: Path,
-    t_learner_config_path: Path,
-    x_learner_config_path: Path,
     top_fraction: float = 0.3,
     curve_num_points: int = 100,
     random_seed: int = 42,
     n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
 ) -> tuple[Path, Path]:
     """Train candidates and complete validation-stage champion selection."""
-    config_paths = (
-        response_config_path,
-        t_learner_config_path,
-        x_learner_config_path,
-    )
-    validate_shared_config_sections(config_paths)
+    project_root = get_project_root(Path(__file__))
 
-    training_results = (
-        train_response_pipeline(
-            config_path=response_config_path,
-            outcome=outcome,
-        ),
-        train_t_learner_pipeline(
-            config_path=t_learner_config_path,
-            outcome=outcome,
-        ),
-        train_x_learner_pipeline(
-            config_path=x_learner_config_path,
-            outcome=outcome,
-        ),
+    dataset_config = load_dataset_config(
+        dataset_config_path,
+        project_root=project_root,
     )
 
-    prediction_artifacts = dict(training_results)
+    validate_supported_outcome(
+        dataset_config.spec,
+        outcome,
+    )
 
-    if len(prediction_artifacts) != len(training_results):
-        raise ValueError(
-            "Candidate training pipelines returned duplicate policy names."
-        )
+    modeling_config = load_yaml_config(
+        modeling_config_path,
+    )
+
+    prediction_artifacts = train_configured_candidates(
+        dataset_config_path=dataset_config_path,
+        modeling_config_path=modeling_config_path,
+        modeling_config=modeling_config,
+        outcome=outcome,
+    )
 
     manifest_path = create_experiment_manifest(
-        config_path=response_config_path,
+        dataset_config_path=dataset_config_path,
+        modeling_config_path=modeling_config_path,
         outcome=outcome,
         experiment_id=experiment_id,
         prediction_artifacts=prediction_artifacts,
     )
 
     selection_artifact_path = evaluate_predictions(
-        config_path=response_config_path,
+        dataset_config_path=dataset_config_path,
+        modeling_config_path=modeling_config_path,
         manifest_path=manifest_path,
         outcome=outcome,
         top_fraction=top_fraction,
@@ -183,15 +203,25 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",
     )
+
     args = parse_args()
     project_root = get_project_root(Path(__file__))
 
+    dataset_config_path = resolve_project_path(
+        args.dataset_config,
+        project_root,
+    )
+
+    modeling_config_path = resolve_project_path(
+        args.modeling_config,
+        project_root,
+    )
+
     manifest_path, selection_artifact_path = run_experiment(
+        dataset_config_path=dataset_config_path,
+        modeling_config_path=modeling_config_path,
         experiment_id=args.experiment_id,
         outcome=args.outcome,
-        response_config_path=resolve_project_path(args.response_config, project_root),
-        t_learner_config_path=resolve_project_path(args.t_learner_config, project_root),
-        x_learner_config_path=resolve_project_path(args.x_learner_config, project_root),
         top_fraction=args.top_fraction,
         curve_num_points=args.curve_num_points,
         random_seed=args.random_seed,
@@ -204,6 +234,3 @@ def main() -> None:
         "Locked test was not run. Finalize it separately after reviewing "
         "the locked champion."
     )
-
-if __name__ == "__main__":
-    main()

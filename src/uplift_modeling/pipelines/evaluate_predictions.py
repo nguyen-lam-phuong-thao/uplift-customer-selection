@@ -1,4 +1,4 @@
-"""Evaluate Criteo model prediction artifacts with uplift metrics."""
+"""Evaluate model prediction artifacts with uplift metrics."""
 
 import argparse
 import logging
@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 from uplift_modeling.artifacts.json import save_json_artifact
 from uplift_modeling.artifacts.manifest import (
     load_experiment_manifest,
+    resolve_manifest_config_paths,
     resolve_prediction_paths,
 )
 from uplift_modeling.artifacts.naming import (
@@ -24,8 +25,8 @@ from uplift_modeling.artifacts.naming import (
     find_next_run_number,
 )
 from uplift_modeling.data.dataset_spec import (
-    get_dataset_spec,
     validate_supported_outcome,
+    load_dataset_config,
 )
 from uplift_modeling.data.row_id import align_frames_by_row_id
 from uplift_modeling.evaluation.bootstrap import (
@@ -68,14 +69,19 @@ EVALUATION_SPLITS = DEFAULT_EVALUATION_SPLITS
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for Criteo prediction evaluation."""
+    """Parse command-line arguments for prediction evaluation."""
     parser = argparse.ArgumentParser(
-        description="Evaluate Criteo prediction artifacts."
+        description="Evaluate validation prediction artifacts."
     )
     parser.add_argument(
-        "--config",
+        "--dataset-config",
         required=True,
-        help="Path to the response-model YAML config.",
+        help="Path to the dataset YAML config.",
+    )
+    parser.add_argument(
+        "--modeling-config",
+        required=True,
+        help="Path to the shared modeling YAML config.",
     )
     parser.add_argument(
         "--manifest",
@@ -84,8 +90,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--outcome",
-        default="visit",
-        help="Outcome to evaluate. Defaults to visit.",
+        required=True,
+        help="Outcome to evaluate.",
     )
     parser.add_argument(
         "--top-fraction",
@@ -135,7 +141,6 @@ def parse_args() -> argparse.Namespace:
         help="Only save Top-K policy and bootstrap evaluation artifacts.",
     )
     return parser.parse_args()
-
 
 def load_prediction_artifacts(prediction_paths: list[Path]) -> pd.DataFrame:
     """Load and validate prediction artifacts."""
@@ -362,7 +367,8 @@ def save_uplift_curve(
 
 
 def evaluate_predictions(
-    config_path: Path,
+    dataset_config_path: Path,
+    modeling_config_path: Path,
     manifest_path: Path,
     outcome: str,
     top_fraction: float,
@@ -374,12 +380,23 @@ def evaluate_predictions(
     bootstrap_budget_fractions: tuple[float, ...] | None = None,
     skip_bootstrap: bool = False,
 ) -> Path | None:
-    """Evaluate local Criteo prediction artifacts."""
+    """Evaluate local prediction artifacts."""
     project_root = get_project_root(Path(__file__))
-    config = load_yaml_config(config_path)
-    data_config = get_config_section(config, "data")
-    output_config = get_config_section(config, "outputs")
-    dataset_spec = get_dataset_spec(str(data_config["dataset_name"]))
+    dataset_config = load_dataset_config(
+        dataset_config_path,
+        project_root=project_root,
+    )
+
+    modeling_config = load_yaml_config(
+        modeling_config_path,
+    )
+
+    output_config = get_config_section(
+        modeling_config,
+        "outputs",
+    )
+
+    dataset_spec = dataset_config.spec
     dataset_name = dataset_spec.name
     validate_supported_outcome(dataset_spec, outcome)
     bootstrap_splits = get_bootstrap_splits(bootstrap_splits)
@@ -389,6 +406,26 @@ def evaluate_predictions(
     if not isinstance(experiment_id, str) or not experiment_id:
         raise ValueError(
             "Experiment manifest must contain a non-empty 'experiment_id'."
+        )
+
+    manifest_dataset_config_path, manifest_modeling_config_path = (
+        resolve_manifest_config_paths(
+            manifest=manifest,
+            manifest_path=manifest_path,
+            project_root=project_root,
+        )
+    )
+
+    if manifest_dataset_config_path.resolve() != dataset_config_path.resolve():
+        raise ValueError(
+            "Dataset config does not match the config recorded "
+            "in the experiment manifest."
+        )
+
+    if manifest_modeling_config_path.resolve() != modeling_config_path.resolve():
+        raise ValueError(
+            "Modeling config does not match the config recorded "
+            "in the experiment manifest."
         )
     
     manifest_prediction_paths = resolve_prediction_paths(
@@ -472,7 +509,7 @@ def evaluate_predictions(
             dataset_name=dataset_name,
             experiment_id=experiment_id,
             settings=get_selection_gate_settings(
-                config,
+                modeling_config,
                 outcome=outcome,
             ),
             source_manifest_path=manifest_path,
@@ -572,10 +609,23 @@ def main() -> None:
     )
     args = parse_args()
     project_root = get_project_root(Path(__file__))
-    config_path = resolve_project_path(args.config, project_root)
-    manifest_path = resolve_project_path(args.manifest, project_root)
+
+    dataset_config_path = resolve_project_path(
+        args.dataset_config,
+        project_root,
+    )
+    modeling_config_path = resolve_project_path(
+        args.modeling_config,
+        project_root,
+    )
+    manifest_path = resolve_project_path(
+        args.manifest,
+        project_root,
+    )
+
     evaluate_predictions(
-        config_path=config_path,
+        dataset_config_path=dataset_config_path,
+        modeling_config_path=modeling_config_path,
         manifest_path=manifest_path,
         outcome=args.outcome,
         top_fraction=args.top_fraction,

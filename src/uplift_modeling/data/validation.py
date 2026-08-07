@@ -1,167 +1,118 @@
+"""Generic validation for prepared uplift modeling tables."""
+
+from __future__ import annotations
+
 from typing import Any
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
-from uplift_modeling.data.criteo import (
-    BINARY_COLUMNS,
-    CRITEO_COLUMNS,
-    FEATURE_COLUMNS,
-)
+from uplift_modeling.data.dataset_spec import DatasetSpec
+from uplift_modeling.data.row_id import validate_row_id_column
 
 
-def _to_python_value(value: Any) -> Any:
-    """Convert pandas and NumPy scalar values to plain Python values."""
-    if pd.isna(value):
-        return None
+def validate_prepared_dataset_contract(
+    dataframe: pd.DataFrame,
+    dataset_spec: DatasetSpec,
+    *,
+    require_row_id: bool = False,
+) -> dict[str, Any]:
+    """Validate a prepared modeling table against the dataset contract.
 
-    if hasattr(value, "item"):
-        return value.item()
+    This function assumes the user already finished EDA and feature engineering.
+    It only checks framework-level requirements.
+    """
+    if dataframe.empty:
+        raise ValueError("Prepared dataset must not be empty.")
 
-    return value
+    required_columns = [
+        *dataset_spec.feature_columns,
+        dataset_spec.treatment_column,
+        *dataset_spec.outcome_columns,
+    ]
 
+    if require_row_id:
+        required_columns.insert(0, dataset_spec.row_id_column)
 
-def _series_to_plain_dict(series: pd.Series) -> dict[str, Any]:
-    """Convert a pandas Series with column-name indexes to a dictionary."""
-    return {
-        str(key): _to_python_value(value)
-        for key, value in series.items()
-    }
+    _validate_required_columns(dataframe, required_columns)
 
+    if dataset_spec.row_id_column in dataframe.columns:
+        validate_row_id_column(
+            dataframe,
+            row_id_column=dataset_spec.row_id_column,
+            context="Prepared dataset",
+        )
 
-def _validate_required_columns(dataframe: pd.DataFrame) -> None:
-    """Raise an error when the confirmed Criteo schema is incomplete."""
-    missing_columns = sorted(
-        set(CRITEO_COLUMNS).difference(dataframe.columns)
+    _validate_binary_column(
+        dataframe,
+        dataset_spec.treatment_column,
+        label="treatment column",
     )
 
-    if missing_columns:
-        missing_columns_text = ", ".join(missing_columns)
-        raise ValueError(
-            "Cannot validate Criteo data because required columns "
-            f"are missing: {missing_columns_text}"
+    for outcome_column in dataset_spec.outcome_columns:
+        _validate_binary_column(
+            dataframe,
+            outcome_column,
+            label=f"outcome column '{outcome_column}'",
         )
 
-
-def _get_binary_unique_values(
-    dataframe: pd.DataFrame,
-) -> dict[str, list[Any]]:
-    """Return observed non-null values for each binary column."""
-    unique_values: dict[str, list[Any]] = {}
-
-    for column in BINARY_COLUMNS:
-        values = dataframe[column].dropna().unique().tolist()
-        unique_values[column] = sorted(
-            (_to_python_value(value) for value in values),
-            key=str,
-        )
-
-    return unique_values
-
-
-def _get_invalid_binary_values(
-    dataframe: pd.DataFrame,
-) -> dict[str, list[Any]]:
-    """Return binary-column values outside the expected domain {0, 1}."""
-    invalid_values: dict[str, list[Any]] = {}
-
-    for column in BINARY_COLUMNS:
-        observed_values = set(
-            dataframe[column].dropna().unique().tolist()
-        )
-        unexpected_values = observed_values.difference({0, 1})
-
-        if unexpected_values:
-            invalid_values[column] = sorted(
-                (
-                    _to_python_value(value)
-                    for value in unexpected_values
-                ),
-                key=str,
-            )
-
-    return invalid_values
-
-
-def _get_non_numeric_features(
-    dataframe: pd.DataFrame,
-) -> list[str]:
-    """Return feature columns that do not use a numeric data type."""
-    return [
+    non_numeric_features = [
         column
-        for column in FEATURE_COLUMNS
+        for column in dataset_spec.feature_columns
         if not is_numeric_dtype(dataframe[column])
     ]
+    if non_numeric_features:
+        raise ValueError(
+            "Prepared feature columns must be numeric. "
+            f"Non-numeric columns: {non_numeric_features}. "
+            "Encode categorical features in the notebook before using the framework."
+        )
 
-
-def validate_criteo(dataframe: pd.DataFrame) -> dict[str, Any]:
-    """Create a JSON-serializable Criteo data-quality report.
-
-    The validation covers:
-
-    - required schema;
-    - row and column counts;
-    - data types;
-    - null values;
-    - numeric feature types;
-    - binary-column domains.
-
-    Duplicate detection, treatment analysis, outcome analysis and leakage
-    interpretation belong to the EDA notebook and are not performed here.
-
-    Parameters
-    ----------
-    dataframe:
-        Criteo dataframe to validate.
-
-    Returns
-    -------
-    dict[str, Any]
-        JSON-serializable validation results.
-
-    Raises
-    ------
-    ValueError
-        If required Criteo columns are missing.
-    """
-    _validate_required_columns(dataframe)
-
-    null_counts = dataframe.isna().sum()
-    null_percentages = dataframe.isna().mean().mul(100)
-
-    columns_with_nulls = [
+    null_columns = [
         column
-        for column, null_count in null_counts.items()
-        if int(null_count) > 0
+        for column in required_columns
+        if dataframe[column].isna().any()
     ]
-
-    binary_unique_values = _get_binary_unique_values(dataframe)
-    invalid_binary_values = _get_invalid_binary_values(dataframe)
-    non_numeric_features = _get_non_numeric_features(dataframe)
-
-    is_valid = (
-        not dataframe.empty
-        and not columns_with_nulls
-        and not invalid_binary_values
-        and not non_numeric_features
-    )
+    if null_columns:
+        raise ValueError(
+            "Prepared dataset contains null values in required columns: "
+            f"{null_columns}. Handle missing values before standardization."
+        )
 
     return {
-        "is_valid": is_valid,
-        "is_empty": dataframe.empty,
+        "is_valid": True,
         "row_count": int(dataframe.shape[0]),
         "column_count": int(dataframe.shape[1]),
-        "column_names": list(dataframe.columns),
-        "data_types": {
-            column: str(dtype)
-            for column, dtype in dataframe.dtypes.items()
-        },
-        "null_counts": _series_to_plain_dict(null_counts),
-        "null_percentages": _series_to_plain_dict(
-            null_percentages
-        ),
-        "columns_with_nulls": columns_with_nulls,
-        "non_numeric_feature_columns": non_numeric_features,
-        "binary_unique_values": binary_unique_values,
-        "invalid_binary_values": invalid_binary_values,
+        "feature_columns": list(dataset_spec.feature_columns),
+        "outcome_columns": list(dataset_spec.outcome_columns),
+        "treatment_column": dataset_spec.treatment_column,
+        "row_id_column": dataset_spec.row_id_column,
+        "split_column": dataset_spec.split_column,
     }
+
+
+def _validate_required_columns(
+    dataframe: pd.DataFrame,
+    required_columns: list[str],
+) -> None:
+    missing_columns = sorted(set(required_columns).difference(dataframe.columns))
+    if missing_columns:
+        raise ValueError(
+            "Prepared dataset is missing required columns: "
+            f"{missing_columns}"
+        )
+
+
+def _validate_binary_column(
+    dataframe: pd.DataFrame,
+    column: str,
+    label: str,
+) -> None:
+    observed_values = set(dataframe[column].dropna().unique().tolist())
+    invalid_values = sorted(observed_values.difference({0, 1}), key=str)
+
+    if invalid_values:
+        raise ValueError(
+            f"Prepared {label} must contain only 0/1 values. "
+            f"Invalid values: {invalid_values}"
+        )
