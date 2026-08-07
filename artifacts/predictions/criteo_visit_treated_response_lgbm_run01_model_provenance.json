@@ -1,0 +1,10 @@
+{
+  "artifact_type": "model_provenance",
+  "dataset_name": "criteo",
+  "mlflow_run_id": "3983bd767ef043119355993bd296d7a7",
+  "model_kind": "response",
+  "model_uri": "models:/m-53ba965032974a83935d6301fd5c2913",
+  "outcome": "visit",
+  "policy_name": "treated_response_lgbm",
+  "prediction_artifact": "criteo_visit_treated_response_lgbm_run01_predictions.parquet"
+}

@@ -1,0 +1,13 @@
+{
+  "dataset_name": "criteo",
+  "model_name": "treated_response_lgbm",
+  "outcome": "visit",
+  "target_column": "visit",
+  "validation": {
+    "average_precision": 0.5202907895828393,
+    "log_loss": 0.10287456669084251,
+    "positive_rate": 0.04699207916684252,
+    "roc_auc": 0.9467410913122862,
+    "row_count": 2795918
+  }
+}

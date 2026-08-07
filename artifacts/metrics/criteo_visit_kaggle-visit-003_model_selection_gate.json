@@ -1,0 +1,59 @@
+{
+  "artifact_type": "model_selection_gate",
+  "bootstrap_artifact": "criteo_visit_bootstrap_paired_contrasts_run01.json",
+  "champion_model_artifact": {
+    "artifact_type": "model_provenance",
+    "constant_treatment_rate_weight": 0.8500001490267658,
+    "control_effect_model_uri": "models:/m-133aa5be356f49d4ae39adf0420f2784",
+    "dataset_name": "criteo",
+    "mlflow_run_id": "9d4de46284bc4a68b540af28da52c5e5",
+    "model_kind": "x_learner",
+    "outcome": "visit",
+    "policy_name": "x_learner_lgbm",
+    "prediction_artifact": "criteo_visit_x_learner_lgbm_run01_predictions.parquet",
+    "treatment_effect_model_uri": "models:/m-f72977d22ad84c25b1e96993b7f21a71"
+  },
+  "champion_policy": "x_learner_lgbm",
+  "dataset_name": "criteo",
+  "experiment_id": "kaggle-visit-003",
+  "explanation_rows": [
+    {
+      "baseline_policy": "treated_response_lgbm",
+      "budget_fraction": 0.05,
+      "ci_lower": 0.0015614299247587984,
+      "ci_upper": 0.0021933893751680095,
+      "is_champion": false,
+      "mean_delta": 0.0018624692527581714,
+      "metric": "policy_value",
+      "outcome": "visit",
+      "passed_selection_gate": true,
+      "policy": "t_learner_lgbm",
+      "selection_reason": "Passed ci_lower > 0 but was not selected because another passing policy had a larger mean_delta or won the alphabetical tie-break.",
+      "split": "validation"
+    },
+    {
+      "baseline_policy": "treated_response_lgbm",
+      "budget_fraction": 0.05,
+      "ci_lower": 0.0017442091218137419,
+      "ci_upper": 0.002443699033961249,
+      "is_champion": true,
+      "mean_delta": 0.0021113181344518898,
+      "metric": "policy_value",
+      "outcome": "visit",
+      "passed_selection_gate": true,
+      "policy": "x_learner_lgbm",
+      "selection_reason": "Selected because ci_lower > 0 and it had the largest mean_delta among passing policies, with alphabetical policy name as the deterministic tie-break.",
+      "split": "validation"
+    }
+  ],
+  "selection_method": "bootstrap_paired_contrast_ci_lower_positive_largest_mean_delta",
+  "selection_reason": "Selected 'x_learner_lgbm' because it passed ci_lower > 0 and had the largest mean_delta among passing policies, with alphabetical policy name as the deterministic tie-break.",
+  "selection_settings": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.05,
+    "metric": "policy_value",
+    "outcome": "visit",
+    "split": "validation"
+  },
+  "source_manifest_path": "/kaggle/working/uplift-customer-selection/artifacts/metrics/criteo_visit_kaggle-visit-003_experiment_manifest.json"
+}

@@ -31,14 +31,6 @@ data/interim/*
 data/processed/*
 !data/processed/.gitkeep
 
-# Generated artifacts
-artifacts/figures/*
-!artifacts/figures/.gitkeep
-artifacts/metrics/*
-!artifacts/metrics/.gitkeep
-artifacts/predictions/
-
-
 # OS and editor files
 .DS_Store
 Thumbs.db

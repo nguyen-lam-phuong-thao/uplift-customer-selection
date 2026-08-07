@@ -1,0 +1,47 @@
+{
+  "artifact_type": "experiment_manifest",
+  "config_path": "configs/modeling/criteo_response_lgbm.yaml",
+  "dataset_name": "criteo",
+  "experiment_id": "kaggle-visit-003",
+  "model_artifacts": {
+    "t_learner_lgbm": {
+      "artifact_type": "model_provenance",
+      "control_model_uri": "models:/m-fa0d9e3c27c84b79a43b62d621857188",
+      "dataset_name": "criteo",
+      "mlflow_run_id": "8eba3221ead24138804935d9e6de503e",
+      "model_kind": "t_learner",
+      "outcome": "visit",
+      "policy_name": "t_learner_lgbm",
+      "prediction_artifact": "criteo_visit_t_learner_lgbm_run01_predictions.parquet",
+      "treatment_model_uri": "models:/m-f84b2fc7c1054bfdb5c826a57bfeffc4"
+    },
+    "treated_response_lgbm": {
+      "artifact_type": "model_provenance",
+      "dataset_name": "criteo",
+      "mlflow_run_id": "3983bd767ef043119355993bd296d7a7",
+      "model_kind": "response",
+      "model_uri": "models:/m-53ba965032974a83935d6301fd5c2913",
+      "outcome": "visit",
+      "policy_name": "treated_response_lgbm",
+      "prediction_artifact": "criteo_visit_treated_response_lgbm_run01_predictions.parquet"
+    },
+    "x_learner_lgbm": {
+      "artifact_type": "model_provenance",
+      "constant_treatment_rate_weight": 0.8500001490267658,
+      "control_effect_model_uri": "models:/m-133aa5be356f49d4ae39adf0420f2784",
+      "dataset_name": "criteo",
+      "mlflow_run_id": "9d4de46284bc4a68b540af28da52c5e5",
+      "model_kind": "x_learner",
+      "outcome": "visit",
+      "policy_name": "x_learner_lgbm",
+      "prediction_artifact": "criteo_visit_x_learner_lgbm_run01_predictions.parquet",
+      "treatment_effect_model_uri": "models:/m-f72977d22ad84c25b1e96993b7f21a71"
+    }
+  },
+  "outcome": "visit",
+  "prediction_artifacts": {
+    "t_learner_lgbm": "artifacts/predictions/criteo_visit_t_learner_lgbm_run01_predictions.parquet",
+    "treated_response_lgbm": "artifacts/predictions/criteo_visit_treated_response_lgbm_run01_predictions.parquet",
+    "x_learner_lgbm": "artifacts/predictions/criteo_visit_x_learner_lgbm_run01_predictions.parquet"
+  }
+}

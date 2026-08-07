@@ -1,0 +1,57 @@
+{
+  "artifact_type": "model_selection_gate",
+  "bootstrap_artifact": "criteo_conversion_bootstrap_paired_contrasts_run01.json",
+  "champion_model_artifact": {
+    "artifact_type": "model_provenance",
+    "dataset_name": "criteo",
+    "mlflow_run_id": "e9c1d9262f6643f9bfd9641044a404ab",
+    "model_kind": "response",
+    "model_uri": "runs:/e9c1d9262f6643f9bfd9641044a404ab/model",
+    "outcome": "conversion",
+    "policy_name": "treated_response_lgbm",
+    "prediction_artifact": "criteo_conversion_treated_response_lgbm_run01_predictions.parquet"
+  },
+  "champion_policy": "treated_response_lgbm",
+  "dataset_name": "criteo",
+  "experiment_id": "kaggle-conversion-002",
+  "explanation_rows": [
+    {
+      "baseline_policy": "treated_response_lgbm",
+      "budget_fraction": 0.05,
+      "ci_lower": -0.00013739444263746557,
+      "ci_upper": -1.3928107953540726e-05,
+      "is_champion": false,
+      "mean_delta": -8.12468669488187e-05,
+      "metric": "policy_value",
+      "outcome": "conversion",
+      "passed_selection_gate": false,
+      "policy": "t_learner_lgbm",
+      "selection_reason": "Not selected because ci_lower <= 0.",
+      "split": "validation"
+    },
+    {
+      "baseline_policy": "treated_response_lgbm",
+      "budget_fraction": 0.05,
+      "ci_lower": -4.942588240566453e-05,
+      "ci_upper": 3.131837150303473e-05,
+      "is_champion": false,
+      "mean_delta": -9.661296501023865e-06,
+      "metric": "policy_value",
+      "outcome": "conversion",
+      "passed_selection_gate": false,
+      "policy": "x_learner_lgbm",
+      "selection_reason": "Not selected because ci_lower <= 0.",
+      "split": "validation"
+    }
+  ],
+  "selection_method": "bootstrap_paired_contrast_ci_lower_positive_largest_mean_delta",
+  "selection_reason": "Selected fallback baseline 'treated_response_lgbm' because no candidate policy passed ci_lower > 0.",
+  "selection_settings": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.05,
+    "metric": "policy_value",
+    "outcome": "conversion",
+    "split": "validation"
+  },
+  "source_manifest_path": "/kaggle/working/uplift-customer-selection/artifacts/metrics/criteo_conversion_kaggle-conversion-002_experiment_manifest.json"
+}

@@ -1,0 +1,11 @@
+{
+  "artifact_type": "model_provenance",
+  "control_model_uri": "models:/m-fa0d9e3c27c84b79a43b62d621857188",
+  "dataset_name": "criteo",
+  "mlflow_run_id": "8eba3221ead24138804935d9e6de503e",
+  "model_kind": "t_learner",
+  "outcome": "visit",
+  "policy_name": "t_learner_lgbm",
+  "prediction_artifact": "criteo_visit_t_learner_lgbm_run01_predictions.parquet",
+  "treatment_model_uri": "models:/m-f84b2fc7c1054bfdb5c826a57bfeffc4"
+}

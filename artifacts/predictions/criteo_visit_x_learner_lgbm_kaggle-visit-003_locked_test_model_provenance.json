@@ -1,0 +1,13 @@
+{
+  "artifact_type": "model_provenance",
+  "constant_treatment_rate_weight": 0.8500001490267658,
+  "control_effect_model_uri": "models:/m-133aa5be356f49d4ae39adf0420f2784",
+  "dataset_name": "criteo",
+  "mlflow_run_id": "9d4de46284bc4a68b540af28da52c5e5",
+  "model_kind": "x_learner",
+  "outcome": "visit",
+  "policy_name": "x_learner_lgbm",
+  "prediction_artifact": "criteo_visit_x_learner_lgbm_kaggle-visit-003_locked_test_predictions.parquet",
+  "source_prediction_artifact": "criteo_visit_x_learner_lgbm_run01_predictions.parquet",
+  "treatment_effect_model_uri": "models:/m-f72977d22ad84c25b1e96993b7f21a71"
+}

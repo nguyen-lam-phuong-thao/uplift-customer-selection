@@ -1,0 +1,45 @@
+{
+  "curve_num_points": 100,
+  "metrics": [
+    {
+      "auuc": 20868.813248825958,
+      "cumulative_incremental_outcome": 24579.155062031015,
+      "model_name": "t_learner_lgbm",
+      "policy_value": 0.04803866535715332,
+      "positive_rate": 0.04699207916684252,
+      "qini": 8579.235717810448,
+      "row_count": 2795918,
+      "split": "validation",
+      "treatment_rate": 0.8500002503649964
+    },
+    {
+      "auuc": 20815.119355114428,
+      "cumulative_incremental_outcome": 24579.155062031015,
+      "model_name": "treated_response_lgbm",
+      "policy_value": 0.04820345560099273,
+      "positive_rate": 0.04699207916684252,
+      "qini": 8525.541824098918,
+      "row_count": 2795918,
+      "split": "validation",
+      "treatment_rate": 0.8500002503649964
+    },
+    {
+      "auuc": 20615.579845381897,
+      "cumulative_incremental_outcome": 24579.155062031015,
+      "model_name": "x_learner_lgbm",
+      "policy_value": 0.04832016428145979,
+      "positive_rate": 0.04699207916684252,
+      "qini": 8326.002314366388,
+      "row_count": 2795918,
+      "split": "validation",
+      "treatment_rate": 0.8500002503649964
+    }
+  ],
+  "outcome": "visit",
+  "prediction_artifacts": [
+    "criteo_visit_t_learner_lgbm_run01_predictions.parquet",
+    "criteo_visit_treated_response_lgbm_run01_predictions.parquet",
+    "criteo_visit_x_learner_lgbm_run01_predictions.parquet"
+  ],
+  "top_fraction": 0.3
+}

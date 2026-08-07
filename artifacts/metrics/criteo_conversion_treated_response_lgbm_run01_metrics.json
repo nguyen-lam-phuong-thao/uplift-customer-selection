@@ -1,0 +1,13 @@
+{
+  "dataset_name": "criteo",
+  "model_name": "treated_response_lgbm",
+  "outcome": "conversion",
+  "target_column": "conversion",
+  "validation": {
+    "average_precision": 0.230234539323143,
+    "log_loss": 0.01169602301724462,
+    "positive_rate": 0.002916394543759867,
+    "roc_auc": 0.9602458876901435,
+    "row_count": 2795918
+  }
+}
