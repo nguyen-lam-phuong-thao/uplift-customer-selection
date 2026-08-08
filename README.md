@@ -1,163 +1,231 @@
 # Customer Selection with Uplift Modeling
 
+> A reusable framework for customer selection with uplift modeling, from a prepared dataset to model selection and locked-test evaluation.
+
+---
+
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Purpose](#purpose)
+- [Framework Boundary](#framework-boundary)
+- [Input Dataset](#input-dataset)
+- [Current Supported Models](#current-supported-models)
+- [Champion Selection](#champion-selection)
+- [Training Example](#training-example)
+- [Kaggle Training Notebook](#kaggle-training-notebook)
+- [Repository Structure](#repository-structure)
+- [Documentation](#documentation)
+
+---
+
 ## Project Overview
 
-This project provides a reusable framework for customer selection with uplift modeling.
+This project provides a reusable framework for **customer selection with uplift modeling**.
 
-The framework standardizes the workflow for:
+In a business setting, the framework can be used as a reference workflow when a team wants to evaluate and propose which customers should be prioritized for a marketing campaign, promotion, or other treatment.
 
-- Training candidate models.
-- Generating validation predictions.
-- Evaluating all policies under the same conditions.
-- Comparing candidates with paired bootstrap.
-- Selecting and locking a champion model.
-- Evaluating the selected champion on a separate locked test.
-- Preserving the artifacts required to reproduce each experiment.
+Instead of only predicting who is likely to produce an outcome, uplift modeling focuses on identifying customers whose behavior is more likely to change **because of the treatment**.
 
-The framework is reusable across datasets, but fitted models are not. Each new dataset still requires its own data preparation, feature engineering, and model training.
+The framework standardizes the workflow from a prepared dataset to model selection:
+
+```text
+Prepared dataset
+        ↓
+Standardize dataset
+        ↓
+Train candidate models
+        ↓
+Validation evaluation
+        ↓
+Paired bootstrap
+        ↓
+Champion selection
+        ↓
+Locked test
+```
+
+The framework can be reused across datasets, but each dataset still requires its own preparation before entering the framework.
 
 ---
 
 ## Purpose
 
-Uplift-modeling experiments often rely on separate training scripts, manually selected prediction files, and inconsistent evaluation steps. This creates risks such as:
+The goal of this project is to provide a reproducible workflow for uplift-modeling experiments, especially for customer selection.
 
-- Predictions being aligned with the wrong observations.
-- Models being compared under different settings.
-- Validation and test data being used inconsistently.
-- Artifacts from unrelated experiments being mixed.
-- A selected model not being traceable to its exact training run.
+The framework helps:
 
-This framework provides one controlled workflow for training, comparing, selecting, and evaluating uplift models.
+| Capability | Description |
+|---|---|
+| Candidate training | Train candidate models on the same dataset and splits. |
+| Prediction alignment | Keep predictions aligned with the correct observations. |
+| Policy evaluation | Evaluate policies under the same conditions. |
+| Statistical comparison | Compare candidates with paired bootstrap. |
+| Champion selection | Select and lock a champion using validation data. |
+| Test isolation | Keep the test split independent for final evaluation. |
+| Experiment traceability | Preserve artifacts and model provenance so experiment results can be traced. |
+
+The final outputs can be used to evaluate models and support a ranked customer recommendation based on the selected policy.
 
 ---
 
-## Main Workflow
+## Framework Boundary
+
+The framework starts from a **prepared dataset**.
+
+### Outside the framework
+
+The following steps are outside the framework:
+
+- Raw data processing.
+- EDA.
+- Feature engineering.
+- Treatment/control definition.
+- Outcome definition.
+- Leakage decisions.
+- Dataset-specific encoding or transformation.
+
+### Inside the framework
 
 ```text
-Dataset-specific preparation
+Prepared dataset
         ↓
-Standard decision dataset
+Standardize to a common decision dataset
         ↓
-Train candidate models
+Add internal `row_id`
         ↓
-Write validation predictions and model provenance
+Create train / validation / test split
         ↓
-Create an exact experiment manifest
+Train supported candidates
         ↓
-Validation evaluation
+Validation predictions
         ↓
-Paired bootstrap comparison
+Evaluation + paired bootstrap
         ↓
 Selection Gate
         ↓
-Lock champion
-```
-
-Locked-test evaluation is performed separately:
-
-```text
 Locked champion
         ↓
-Reload exact model from MLflow
-        ↓
-Score test split
-        ↓
-Final evaluation artifact
+Locked-test evaluation
 ```
 
-The test split must not influence training, validation evaluation, bootstrap comparison, or champion selection.
+`row_id` is an internal technical identifier created by the framework to keep predictions and evaluation rows aligned across models.
+
+Splits are created deterministically. Validation is used for model comparison and champion selection; test is used only after the champion has been locked.
 
 ---
 
-## Installation
+## Input Dataset
 
-```bash
-python -m pip install -r requirements.txt
-python -m pip install -e .
-```
+A prepared dataset should contain:
 
----
+| Required component | Description |
+|---|---|
+| Feature columns | Input features used by the uplift models. |
+| Treatment column | Indicates treatment/control assignment. |
+| Outcome column(s) | Outcome or outcomes used for the experiment. |
 
-## Run Validation Experiment
-
-The main experiment runner trains the supported candidates, creates a manifest from the exact prediction artifacts produced in that run, evaluates the candidates on validation, runs paired bootstrap, and selects a champion.
-
-```bash
-python -m uplift_modeling.pipelines.run_experiment \
-  --experiment-id criteo-visit-001 \
-  --outcome visit
-```
-
-The runner performs:
+A simple example:
 
 ```text
-Train treated-response baseline
-        ↓
-Train T-Learner
-        ↓
-Train X-Learner
-        ↓
-Collect exact validation prediction paths
-        ↓
-Create experiment manifest
-        ↓
-Run validation evaluation
-        ↓
-Run paired bootstrap
-        ↓
-Run Selection Gate
+age
+tenure
+past_purchase_count
+average_order_value
+treatment
+conversion
 ```
 
-The runner stops after champion selection. It does not run the locked test automatically.
+For the Criteo dataset used in this project:
+
+```text
+f0
+f1
+...
+f11
+treatment
+visit
+conversion
+```
+
+After standardization, one decision dataset for a selected outcome follows this structure:
+
+```text
+row_id
+feature columns
+treatment
+outcome
+split
+```
+
+The input dataset does not need to provide `row_id`; the framework creates it for internal alignment.
 
 ---
 
-## Run Locked Test
+## Current Supported Models
 
-After the champion has been selected and reviewed, run the final evaluation separately:
+The framework currently supports:
 
-```bash
-python -m uplift_modeling.pipelines.evaluate_locked_test \
-  --config configs/modeling/criteo_response_lgbm.yaml \
-  --manifest artifacts/metrics/<manifest>.json \
-  --selection-artifact artifacts/metrics/<selection>.json \
-  --outcome visit
-```
+| Model | Role |
+|---|---|
+| `treated_response_lgbm` | Default baseline in the current workflow |
+| `t_learner_lgbm` | Candidate uplift model |
+| `x_learner_lgbm` | Candidate uplift model |
 
-The locked-test pipeline:
+`treated_response_lgbm` is the default baseline in the current workflow.
 
-- Validates the selection artifact against the experiment manifest.
-- Loads the exact selected model from MLflow.
-- Scores only the test split for the champion policy.
-- Produces final evaluation metrics without changing the champion.
+`random_targeting` is used only as an evaluation benchmark. It is not a deployable model and cannot become the champion.
 
----
-
-## Current Models
-
-The Criteo implementation currently includes:
-
-- `treated_response_lgbm`
-- `t_learner_lgbm`
-- `x_learner_lgbm`
-
-`random_targeting` is generated internally as an evaluation benchmark. It is not a deployable model and cannot become the champion.
+The framework is designed so that additional model families can be added later through explicit implementation and candidate configuration.
 
 ---
 
 ## Champion Selection
 
-Champion selection uses validation-only paired-bootstrap comparisons.
+Champion selection uses **validation data only**.
 
-For the configured outcome, validation split, budget, metric, and baseline:
+### Selection rules
 
-1. Compare each deployable candidate with the baseline.
-2. A candidate passes when `ci_lower > 0`.
-3. If multiple candidates pass, select the one with the largest `mean_delta`.
-4. If no candidate passes, keep the baseline.
+| Step | Rule |
+|---:|---|
+| 1 | Compare each candidate with `treated_response_lgbm`. |
+| 2 | A candidate passes when `ci_lower > 0`. |
+| 3 | If multiple candidates pass, select the candidate with the largest `mean_delta`. |
+| 4 | If no candidate passes, keep the baseline. |
 
-The Selection Gate only consumes previously calculated bootstrap results. It does not perform prediction, metric calculation, or resampling itself.
+### Default top-k budgets
+
+| Budget |
+|---:|
+| 1% |
+| 5% |
+| 10% |
+| 20% |
+| 30% |
+
+> **Test isolation:** The test split is not used during model selection.
+
+---
+
+## Training Example
+
+Run the full validation experiment with:
+
+```bash
+python -m uplift_modeling.pipelines.run_experiment   --dataset-config <dataset-config>   --modeling-config <modeling-config>   --experiment-id <experiment-id>   --outcome <outcome>
+```
+
+The runner standardizes the prepared dataset, trains configured candidates, creates validation predictions, evaluates the candidates, runs paired bootstrap, and executes the Selection Gate.
+
+Locked-test evaluation is run separately after the champion has been selected.
+
+---
+
+## Kaggle Training Notebook
+
+A Criteo uplift-training notebook is available here:
+
+[**Criteo uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training)
 
 ---
 
@@ -165,16 +233,9 @@ The Selection Gate only consumes previously calculated bootstrap results. It doe
 
 ```text
 .
-├── artifacts/
-│   ├── figures/
-│   ├── metrics/
-│   └── predictions/
 ├── configs/
-│   └── modeling/
 ├── contracts/
 ├── data/
-│   ├── processed/
-│   └── raw/
 ├── docs/
 ├── notebooks/
 ├── src/uplift_modeling/
@@ -190,11 +251,13 @@ The Selection Gate only consumes previously calculated bootstrap results. It doe
 └── README.md
 ```
 
-Generated datasets, predictions, metrics, figures, local MLflow files, environments, and temporary files must not be committed.
-
 ---
 
-## Detailed Documentation
+## Documentation
 
-- [`docs/framework_workflow.md`](docs/framework_workflow.md): detailed end-to-end workflow, evaluation stages, bootstrap comparison, champion selection, and locked-test lifecycle.
-- [`contracts/README.md`](contracts/README.md): dataset, prediction, provenance, manifest, selection, and artifact contracts.
+For the full workflow, dataset contracts, prediction artifacts, bootstrap, Selection Gate, and locked-test rules, see:
+
+| Document | Description |
+|---|---|
+| [`docs/framework_workflow.md`](docs/framework_workflow.md) | Full workflow, dataset contracts, prediction artifacts, bootstrap, Selection Gate, and locked-test rules. |
+
