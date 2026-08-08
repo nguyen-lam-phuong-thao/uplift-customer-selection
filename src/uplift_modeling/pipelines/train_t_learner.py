@@ -36,7 +36,10 @@ from uplift_modeling.pipelines.train_response_model import (
     get_training_splits,
 )
 from uplift_modeling.data.dataset_spec import load_dataset_config
-from uplift_modeling.models.config import resolve_model_candidate
+from uplift_modeling.models.config import (
+    ModelCandidateConfig,
+    resolve_model_candidate,
+)
 from uplift_modeling.tracking.mlflow_tracking import setup_mlflow
 from uplift_modeling.utils.config import (
     get_config_section,
@@ -90,7 +93,12 @@ def get_treatment_group(
     return group
 
 
-def train_t_learner_pipeline(dataset_config_path: Path, modeling_config_path: Path, outcome: str) -> tuple[str, Path]:
+def train_t_learner_pipeline(
+        dataset_config_path: Path, 
+        modeling_config_path: Path, 
+        outcome: str,
+        model_candidate: ModelCandidateConfig,
+) -> tuple[str, Path]:
     """Run the configured T-Learner training pipeline."""
     project_root = get_project_root(Path(__file__))
 
@@ -99,6 +107,12 @@ def train_t_learner_pipeline(dataset_config_path: Path, modeling_config_path: Pa
         project_root=project_root,
     )
     modeling_config = load_yaml_config(modeling_config_path)
+
+    if model_candidate.kind != T_LEARNER_MODEL_KIND:
+        raise ValueError(
+            f"T-Learner trainer received candidate kind "
+            f"'{model_candidate.kind}'."
+        )
 
     training_config = get_config_section(
         modeling_config,
@@ -110,11 +124,6 @@ def train_t_learner_pipeline(dataset_config_path: Path, modeling_config_path: Pa
     )
     tracking_config = get_tracking_config(modeling_config)
     debug_config = get_debug_config(modeling_config)
-
-    model_candidate = resolve_model_candidate(
-        modeling_config,
-        T_LEARNER_MODEL_KIND,
-    )
 
     dataset_spec = dataset_config.spec
     dataset_name = dataset_spec.name
@@ -326,11 +335,17 @@ def main() -> None:
         args.modeling_config,
         project_root,
     )
+    modeling_config = load_yaml_config(modeling_config_path)
 
+    model_candidate = resolve_model_candidate(
+        modeling_config,
+        T_LEARNER_MODEL_KIND,
+    )
     train_t_learner_pipeline(
         dataset_config_path=dataset_config_path,
         modeling_config_path=modeling_config_path,
         outcome=args.outcome,
+        model_candidate=model_candidate,
     )
 
 

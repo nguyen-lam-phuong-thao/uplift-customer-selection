@@ -24,7 +24,6 @@ def _write_dataset_config(tmp_path: Path) -> Path:
                 f"  name: {DATASET_NAME}",
                 f"  prepared_path: {(tmp_path / 'prepared.parquet').as_posix()}",
                 "schema:",
-                "  row_id_column: row_id",
                 "  treatment_column: treatment",
                 "  split_column: split",
                 "  feature_columns:",
@@ -66,7 +65,6 @@ def _write_modeling_config(
                 f"  primary_split: {primary_split}",
                 "  primary_budget_fraction: 0.05",
                 "  primary_metric: policy_value",
-                "  baseline_policy: treated_response_lgbm",
             ]
         ),
         encoding="utf-8",
@@ -475,3 +473,19 @@ def test_standard_evaluation_uses_only_manifest_listed_artifact(
     )
 
     assert payload["prediction_artifacts"] == [selected_path.name]
+
+def test_selection_gate_rejects_unsupported_primary_budget() -> None:
+    with pytest.raises(
+        ValueError,
+        match="primary_budget_fraction must be one of",
+    ):
+        pipeline.get_selection_gate_settings(
+            {
+                "selection": {
+                    "primary_split": "validation",
+                    "primary_budget_fraction": 0.15,
+                    "primary_metric": "policy_value",
+                }
+            },
+            outcome="visit",
+        )

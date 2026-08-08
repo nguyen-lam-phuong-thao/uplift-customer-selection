@@ -3,7 +3,6 @@ dataset:
   prepared_path: data/interim/hillstrom/hillstrom_modeling_base.parquet
 
 schema:
-  row_id_column: row_id
   treatment_column: treatment
   split_column: split
 

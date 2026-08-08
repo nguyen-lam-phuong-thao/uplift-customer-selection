@@ -29,10 +29,7 @@ def standardize_prepared_dataset(
         require_row_id=False,
     )
 
-    prepared_frame = add_row_id(
-        prepared_frame,
-        row_id_column=dataset_spec.row_id_column,
-    )
+    prepared_frame = add_row_id(prepared_frame)
 
     validate_prepared_dataset_contract(
         prepared_frame,

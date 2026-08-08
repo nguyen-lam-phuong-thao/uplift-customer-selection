@@ -13,7 +13,7 @@ from uplift_modeling.pipelines.train_response_model import (
     validate_outcome,
 )
 from uplift_modeling.utils.config import get_config_section, load_yaml_config
-
+from uplift_modeling.models.config import ModelCandidateConfig
 
 pytest.importorskip("pyarrow")
 
@@ -108,7 +108,6 @@ def test_dataset_config_loads_criteo_schema_from_yaml() -> None:
     )
 
     assert dataset_config.spec.name == "criteo"
-    assert dataset_config.spec.row_id_column == "row_id"
     assert dataset_config.spec.treatment_column == "treatment"
     assert dataset_config.spec.split_column == "split"
     assert dataset_config.spec.feature_columns == tuple(
@@ -124,7 +123,6 @@ def test_training_frame_loads_columns_from_dataset_spec(tmp_path: Path) -> None:
     """Stable columns come from the resolved DatasetSpec, not config."""
     dataset_spec = DatasetSpec(
         name="synthetic",
-        row_id_column="customer_id",
         treatment_column="mail_flag",
         split_column="partition",
         feature_columns=("age", "score"),
@@ -133,6 +131,7 @@ def test_training_frame_loads_columns_from_dataset_spec(tmp_path: Path) -> None:
     parquet_path = tmp_path / "training.parquet"
     pd.DataFrame(
         {
+            "row_id": [0, 1],
             "customer_id": [1, 2],
             "age": [30, 40],
             "score": [0.1, 0.2],
@@ -151,7 +150,7 @@ def test_training_frame_loads_columns_from_dataset_spec(tmp_path: Path) -> None:
 
     assert target_column == "purchase"
     assert frame.columns.tolist() == [
-        "customer_id",
+        "row_id",
         "age",
         "score",
         "mail_flag",
@@ -178,7 +177,6 @@ def _write_debug_dataset_config(
                 "  name: synthetic",
                 f"  prepared_path: {(tmp_path / 'unused.parquet').as_posix()}",
                 "schema:",
-                "  row_id_column: row_id",
                 "  treatment_column: treatment",
                 "  split_column: split",
                 "  feature_columns:",
@@ -266,27 +264,37 @@ def _write_debug_sampling_data(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize(
-    "module_name,function_name",
+    "module_name,function_name,model_name,model_kind",
     [
         (
             "uplift_modeling.pipelines.train_response_model",
             "train_response_pipeline",
+            "treated_response_lgbm",
+            "response",
         ),
         (
             "uplift_modeling.pipelines.train_t_learner",
             "train_t_learner_pipeline",
+            "t_learner_lgbm",
+            "t_learner",
         ),
         (
             "uplift_modeling.pipelines.train_x_learner",
             "train_x_learner_pipeline",
+            "x_learner_lgbm",
+            "x_learner",
         ),
     ],
 )
+
+
 def test_debug_sample_receives_train_and_validation_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     module_name: str,
     function_name: str,
+    model_name: str,
+    model_kind: str,
 ) -> None:
     data_path = _write_debug_sampling_data(tmp_path)
 
@@ -317,6 +325,12 @@ def test_debug_sample_receives_train_and_validation_only(
         capture_debug_sample,
     )
 
+    model_candidate = ModelCandidateConfig(
+        name=model_name,
+        kind=model_kind,
+        params={},
+    )
+
     with pytest.raises(
         RuntimeError,
         match="stop after debug sample",
@@ -328,6 +342,7 @@ def test_debug_sample_receives_train_and_validation_only(
             dataset_config_path=dataset_config_path,
             modeling_config_path=modeling_config_path,
             outcome="visit",
+            model_candidate=model_candidate,
         )
 
     assert observed_splits == {

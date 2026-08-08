@@ -45,7 +45,6 @@ def test_standardize_prepared_dataset_writes_decision_datasets(
     dataset_config = DatasetConfig(
         spec=DatasetSpec(
             name="unit_test",
-            row_id_column="row_id",
             treatment_column="treatment",
             split_column="split",
             feature_columns=("feature_1", "feature_2"),

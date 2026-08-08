@@ -112,6 +112,26 @@ def test_locked_test_loads_test_rows_and_aligns_by_row_id(
     assert set(frames["first"]["split"]) == {"test"}
 
 
+def test_locked_test_rejects_mixed_split_artifact(
+    tmp_path: Path,
+) -> None:
+    prediction_path = tmp_path / "champion.parquet"
+
+    frame = _prediction_frame("champion")
+    frame.loc[0, "split"] = "validation"
+    frame.to_parquet(prediction_path, index=False)
+
+    with pytest.raises(
+        ValueError,
+        match="must contain only 'test' rows",
+    ):
+        load_locked_test_prediction_frames(
+            {
+                "champion": prediction_path,
+            }
+        )
+
+
 def test_selection_gate_loader_rejects_wrong_artifact_type(
     tmp_path: Path,
 ) -> None:

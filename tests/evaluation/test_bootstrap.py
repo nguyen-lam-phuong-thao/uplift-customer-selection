@@ -12,16 +12,16 @@ import pytest
 
 from uplift_modeling.evaluation.bootstrap import (
     calculate_bootstrap_policy_metric_samples,
-    calculate_bootstrap_policy_rows,
-    save_bootstrap_policy_evaluation,
 )
+
 from uplift_modeling.evaluation.bootstrap_summary import (
-    calculate_bootstrap_policy_rows as calculate_bootstrap_policy_rows_new,
+    calculate_bootstrap_policy_rows,
     summarize_bootstrap_paired_contrasts,
     summarize_bootstrap_policy_metric_samples,
 )
+
 from uplift_modeling.evaluation.bootstrap_writer import (
-    save_bootstrap_policy_evaluation as save_bootstrap_policy_evaluation_new,
+    save_bootstrap_policy_evaluation,
 )
 from uplift_modeling.evaluation.topk_policy import TOPK_BUDGET_FRACTIONS
 from uplift_modeling.evaluation.uplift_metrics import (
@@ -134,10 +134,10 @@ def _run_fresh_python_import_check(code: str) -> None:
         )
     ),
 )
-def test_bootstrap_output_has_expected_columns_and_valid_ci(
+def test_bootstrap_modules_import_in_any_order(
     module_order: tuple[str, ...],
 ) -> None:
-    """Bootstrap summaries expose the required metric columns."""
+    """Bootstrap modules import independently without circular imports."""
     code = "\n".join(
         [
             "import importlib",
@@ -149,6 +149,10 @@ def test_bootstrap_output_has_expected_columns_and_valid_ci(
     )
 
     _run_fresh_python_import_check(code)
+
+
+def test_bootstrap_output_has_expected_columns_and_valid_ci() -> None:
+    """Bootstrap summaries expose the required metric columns."""
 
     policy_rows, contrast_rows, warnings = calculate_bootstrap_policy_rows(
         _policy_frames(),
@@ -468,27 +472,6 @@ def test_requested_missing_bootstrap_split_raises_clear_error() -> None:
             random_seed=42,
             bootstrap_splits=("holdout",),
         )
-
-
-def test_bootstrap_compatibility_imports_match_new_modules() -> None:
-    """Legacy bootstrap imports resolve to the refactored implementations."""
-    frames = _policy_frames()
-
-    legacy_rows = calculate_bootstrap_policy_rows(
-        frames,
-        budget_fractions=(0.5, 1.0),
-        n_bootstrap=4,
-        random_seed=42,
-    )
-    new_rows = calculate_bootstrap_policy_rows_new(
-        frames,
-        budget_fractions=(0.5, 1.0),
-        n_bootstrap=4,
-        random_seed=42,
-    )
-
-    assert legacy_rows == new_rows
-    assert save_bootstrap_policy_evaluation is save_bootstrap_policy_evaluation_new
 
 
 def test_bootstrap_samples_keep_topk_selected_count() -> None:

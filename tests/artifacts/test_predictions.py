@@ -14,6 +14,7 @@ def test_build_prediction_frame_uses_shared_contract() -> None:
     """Prediction frames expose the columns used by evaluation."""
     source = pd.DataFrame(
         {
+            "row_id": [0, 1],
             "customer_id": [101, 102],
             "f0": [0.1, 0.2],
             "treatment_flag": [1, 0],
@@ -28,7 +29,6 @@ def test_build_prediction_frame_uses_shared_contract() -> None:
         split_column="split_name",
         outcome_column="target",
         model_name="response_model_lgbm",
-        row_id_column="customer_id",
     )
 
     assert predictions.columns.tolist() == [
@@ -39,7 +39,7 @@ def test_build_prediction_frame_uses_shared_contract() -> None:
         "score",
         "model_name",
     ]
-    assert predictions["row_id"].tolist() == [101, 102]
+    assert predictions["row_id"].tolist() == [0, 1]
     assert predictions["score"].tolist() == [0.8, 0.2]
 
 

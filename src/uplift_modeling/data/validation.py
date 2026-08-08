@@ -8,8 +8,10 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
 from uplift_modeling.data.dataset_spec import DatasetSpec
-from uplift_modeling.data.row_id import validate_row_id_column
-
+from uplift_modeling.data.row_id import (
+    ROW_ID_COLUMN,
+    validate_row_id_column,
+)
 
 def validate_prepared_dataset_contract(
     dataframe: pd.DataFrame,
@@ -32,15 +34,14 @@ def validate_prepared_dataset_contract(
     ]
 
     if require_row_id:
-        required_columns.insert(0, dataset_spec.row_id_column)
+        required_columns.insert(0, ROW_ID_COLUMN)
 
     _validate_required_columns(dataframe, required_columns)
 
-    if dataset_spec.row_id_column in dataframe.columns:
+    if require_row_id:
         validate_row_id_column(
             dataframe,
-            row_id_column=dataset_spec.row_id_column,
-            context="Prepared dataset",
+            context="Standardized dataset",
         )
 
     _validate_binary_column(
@@ -86,7 +87,7 @@ def validate_prepared_dataset_contract(
         "feature_columns": list(dataset_spec.feature_columns),
         "outcome_columns": list(dataset_spec.outcome_columns),
         "treatment_column": dataset_spec.treatment_column,
-        "row_id_column": dataset_spec.row_id_column,
+        "row_id_column": ROW_ID_COLUMN,
         "split_column": dataset_spec.split_column,
     }
 

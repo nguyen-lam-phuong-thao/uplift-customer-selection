@@ -24,28 +24,6 @@ from uplift_modeling.evaluation.topk_policy import (
 )
 
 
-_COMPATIBILITY_EXPORTS = {
-    "calculate_bootstrap_policy_rows": (
-        "uplift_modeling.evaluation.bootstrap_summary",
-        "calculate_bootstrap_policy_rows",
-    ),
-    "summarize_bootstrap_paired_contrasts": (
-        "uplift_modeling.evaluation.bootstrap_summary",
-        "summarize_bootstrap_paired_contrasts",
-    ),
-    "summarize_bootstrap_policy_metric_samples": (
-        "uplift_modeling.evaluation.bootstrap_summary",
-        "summarize_bootstrap_policy_metric_samples",
-    ),
-    "find_next_bootstrap_run_number": (
-        "uplift_modeling.evaluation.bootstrap_writer",
-        "find_next_bootstrap_run_number",
-    ),
-    "save_bootstrap_policy_evaluation": (
-        "uplift_modeling.evaluation.bootstrap_writer",
-        "save_bootstrap_policy_evaluation",
-    ),
-}
 __all__ = [
     "BOOTSTRAP_METRICS",
     "DEFAULT_BASELINE_POLICY",
@@ -53,21 +31,7 @@ __all__ = [
     "DEFAULT_N_BOOTSTRAP",
     "calculate_bootstrap_policy_metric_samples",
     "validate_bootstrap_config",
-    *_COMPATIBILITY_EXPORTS,
 ]
-
-
-def __getattr__(name: str) -> Any:
-    """Lazily resolve legacy bootstrap exports without import-time cycles."""
-    if name not in _COMPATIBILITY_EXPORTS:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-    from importlib import import_module
-
-    module_name, attribute_name = _COMPATIBILITY_EXPORTS[name]
-    attribute = getattr(import_module(module_name), attribute_name)
-    globals()[name] = attribute
-    return attribute
 
 
 def _get_split_frames(

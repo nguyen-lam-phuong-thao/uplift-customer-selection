@@ -23,7 +23,6 @@ class DatasetSpec:
     """
 
     name: str
-    row_id_column: str
     treatment_column: str
     split_column: str
     feature_columns: Sequence[str]
@@ -31,10 +30,6 @@ class DatasetSpec:
 
     def __post_init__(self) -> None:
         name = _as_non_empty_string(self.name, "dataset.name").strip().lower()
-        row_id_column = _as_non_empty_string(
-            self.row_id_column,
-            "schema.row_id_column",
-        )
         treatment_column = _as_non_empty_string(
             self.treatment_column,
             "schema.treatment_column",
@@ -54,7 +49,7 @@ class DatasetSpec:
         )
 
         reserved_columns = {
-            row_id_column,
+            ROW_ID_COLUMN,
             treatment_column,
             split_column,
             *outcome_columns,
@@ -79,7 +74,6 @@ class DatasetSpec:
             )
 
         object.__setattr__(self, "name", name)
-        object.__setattr__(self, "row_id_column", row_id_column)
         object.__setattr__(self, "treatment_column", treatment_column)
         object.__setattr__(self, "split_column", split_column)
         object.__setattr__(self, "feature_columns", feature_columns)
@@ -174,9 +168,14 @@ def load_dataset_config(
     split = config.get("split", {})
     outputs = config["outputs"]
 
+    if "row_id_column" in schema:
+        raise ValueError(
+            "schema.row_id_column is not configurable."
+            "The framework owns the internal 'row_id' column"
+        )
+    
     spec = DatasetSpec(
         name=dataset["name"],
-        row_id_column=schema.get("row_id_column", ROW_ID_COLUMN),
         treatment_column=schema["treatment_column"],
         split_column=schema.get("split_column", "split"),
         feature_columns=schema["feature_columns"],

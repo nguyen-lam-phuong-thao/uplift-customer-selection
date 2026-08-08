@@ -28,7 +28,10 @@ from uplift_modeling.data.dataset_spec import (
     load_dataset_config,
     validate_supported_outcome,
 )
-from uplift_modeling.data.row_id import validate_row_id_column
+from uplift_modeling.data.row_id import (
+    ROW_ID_COLUMN,
+    validate_row_id_column,
+)
 from uplift_modeling.evaluation.binary_metrics import calculate_binary_metrics
 from uplift_modeling.models.response_model import (
     build_response_model,
@@ -42,7 +45,10 @@ from uplift_modeling.utils.config import (
     load_yaml_config,
     resolve_project_path,
 )
-from uplift_modeling.models.config import resolve_model_candidate
+from uplift_modeling.models.config import (
+    ModelCandidateConfig,
+    resolve_model_candidate,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -185,7 +191,7 @@ def load_training_frame(
         )
 
     required_columns = (
-        dataset_spec.row_id_column,
+        ROW_ID_COLUMN,
         *dataset_spec.feature_columns,
         dataset_spec.treatment_column,
         dataset_spec.split_column,
@@ -201,7 +207,6 @@ def load_training_frame(
     dataframe = pd.read_parquet(parquet_path, columns=list(required_columns))
     validate_row_id_column(
         dataframe,
-        row_id_column=dataset_spec.row_id_column,
         context="Training dataframe",
     )
     return dataframe, requested_outcome
@@ -240,7 +245,12 @@ def filter_training_and_validation_splits(
     ].copy()
 
 
-def train_response_pipeline(dataset_config_path: Path, modeling_config_path:Path, outcome: str) -> tuple[str, Path]:
+def train_response_pipeline(
+        dataset_config_path: Path, 
+        modeling_config_path:Path, 
+        outcome: str, 
+        model_candidate: ModelCandidateConfig
+) -> tuple[str, Path]:
     """Run the configured response-model training pipeline."""
     project_root = get_project_root(Path(__file__))
     dataset_config = load_dataset_config(
@@ -248,6 +258,12 @@ def train_response_pipeline(dataset_config_path: Path, modeling_config_path:Path
         project_root=project_root,
     )
     modeling_config = load_yaml_config(modeling_config_path)
+
+    if model_candidate.kind != RESPONSE_MODEL_KIND:
+        raise ValueError(
+            f"Response-model trainer received candidate kind"
+            f"'{model_candidate.kind}'."
+        )
 
     training_config = get_config_section(
         modeling_config,
@@ -259,11 +275,6 @@ def train_response_pipeline(dataset_config_path: Path, modeling_config_path:Path
     )
     tracking_config = get_tracking_config(modeling_config)
     debug_config = get_debug_config(modeling_config)
-
-    model_candidate = resolve_model_candidate(
-        modeling_config,
-        RESPONSE_MODEL_KIND,
-    )
 
     dataset_spec = dataset_config.spec
     dataset_name = dataset_spec.name
@@ -494,10 +505,18 @@ def main() -> None:
         project_root,
     )
 
+    modeling_config = load_yaml_config(modeling_config_path)
+
+    model_candidate = resolve_model_candidate(
+        modeling_config,
+        RESPONSE_MODEL_KIND,
+    )
+
     train_response_pipeline(
         dataset_config_path=dataset_config_path,
         modeling_config_path=modeling_config_path,
         outcome=args.outcome,
+        model_candidate=model_candidate,
     )
 
 

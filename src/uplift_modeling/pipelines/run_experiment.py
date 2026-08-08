@@ -27,6 +27,9 @@ from uplift_modeling.data.dataset_spec import(
     load_dataset_config,
     validate_supported_outcome
 )
+from uplift_modeling.data.standardization import (
+    standardize_prepared_dataset,
+)
 from uplift_modeling.models.config import resolve_model_candidates
 from uplift_modeling.models.scoring import (
     RESPONSE_MODEL_KIND,
@@ -45,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Train configured candidates, create an experiment manifest,"
+            "Standardize prepared data, train configured candidates, "
             "evaluate validation predictions, and select a champion."
         )
     )
@@ -116,6 +119,7 @@ def train_configured_candidates(
             dataset_config_path=dataset_config_path,
             modeling_config_path=modeling_config_path,
             outcome=outcome,
+            model_candidate=candidate,
         )
 
         if model_name != candidate.name:
@@ -145,7 +149,7 @@ def run_experiment(
     random_seed: int = 42,
     n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
 ) -> tuple[Path, Path]:
-    """Train candidates and complete validation-stage champion selection."""
+    """Standardize prepared data and complete validation-stage selection"""
     project_root = get_project_root(Path(__file__))
 
     dataset_config = load_dataset_config(
@@ -162,6 +166,16 @@ def run_experiment(
         modeling_config_path,
     )
 
+    standardized_paths = standardize_prepared_dataset(
+        dataset_config,
+    )
+
+    if outcome not in standardized_paths:
+        raise RuntimeError(
+            f"Standardization did not produce a decision dataset"
+            f"for outcome '{outcome}'"
+        )
+    
     prediction_artifacts = train_configured_candidates(
         dataset_config_path=dataset_config_path,
         modeling_config_path=modeling_config_path,

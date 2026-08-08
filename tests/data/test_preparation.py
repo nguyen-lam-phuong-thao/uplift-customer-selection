@@ -9,7 +9,6 @@ from uplift_modeling.data.preparation import build_decision_dataset
 def dataset_spec() -> DatasetSpec:
     return DatasetSpec(
         name="unit_test",
-        row_id_column="row_id",
         treatment_column="treatment",
         split_column="split",
         feature_columns=("feature_1", "feature_2"),

@@ -16,9 +16,16 @@ def test_train_configured_candidates_dispatches_configured_models(
             },
             "candidates": [
                 {
-                    "name": "response_model",
+                    "name": "response_a",
                     "kind": "response",
                     "params": {},
+                },
+                {
+                    "name": "response_b",
+                    "kind": "response",
+                    "params": {
+                        "num_leaves": 63,
+                    },
                 },
                 {
                     "name": "t_model",
@@ -36,44 +43,40 @@ def test_train_configured_candidates_dispatches_configured_models(
 
     calls = []
 
-    def make_pipeline(kind: str, model_name: str):
+    def make_pipeline(kind: str):
         def fake_pipeline(
             dataset_config_path,
             modeling_config_path,
             outcome,
+            model_candidate,
         ):
-            calls.append(kind)
+            calls.append(
+                (kind, model_candidate.name)
+            )
 
             return (
-                model_name,
-                tmp_path / f"{model_name}.parquet",
+                model_candidate.name,
+                tmp_path / f"{model_candidate.name}.parquet",
             )
 
         return fake_pipeline
-
+    
     monkeypatch.setitem(
         pipeline.TRAIN_PIPELINES,
         "response",
-        make_pipeline(
-            "response",
-            "response_model",
-        ),
+        make_pipeline("response"),
     )
+
     monkeypatch.setitem(
         pipeline.TRAIN_PIPELINES,
         "t_learner",
-        make_pipeline(
-            "t_learner",
-            "t_model",
-        ),
+        make_pipeline("t_learner"),
     )
+
     monkeypatch.setitem(
         pipeline.TRAIN_PIPELINES,
         "x_learner",
-        make_pipeline(
-            "x_learner",
-            "x_model",
-        ),
+        make_pipeline("x_learner"),
     )
 
     prediction_artifacts = (
@@ -86,13 +89,15 @@ def test_train_configured_candidates_dispatches_configured_models(
     )
 
     assert calls == [
-        "response",
-        "t_learner",
-        "x_learner",
+        ("response", "response_a"),
+        ("response", "response_b"),
+        ("t_learner", "t_model"),
+        ("x_learner", "x_model"),
     ]
 
     assert prediction_artifacts == {
-        "response_model": tmp_path / "response_model.parquet",
+        "response_a": tmp_path / "response_a.parquet",
+        "response_b": tmp_path / "response_b.parquet",
         "t_model": tmp_path / "t_model.parquet",
         "x_model": tmp_path / "x_model.parquet",
     }
@@ -112,7 +117,119 @@ def test_run_experiment_passes_exact_training_outputs(
                 "  name: synthetic",
                 f"  prepared_path: {(tmp_path / 'prepared.parquet').as_posix()}",
                 "schema:",
-                "  row_id_column: row_id",
+                "  treatment_column: treatment",
+                "  split_column: split",
+                "  feature_columns:",
+                "    - f0",
+                "  outcome_columns:",
+                "    - visit",
+                "split:",
+                "  assign_if_missing: false",
+                "  train_size: 0.6",
+                "  validation_size: 0.2",
+                "  test_size: 0.2",
+                "  random_state: 42",
+                "outputs:",
+                "  processed_paths:",
+                f"    visit: {(tmp_path / 'decision.parquet').as_posix()}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    modeling_config_path.write_text(
+        "\n".join(
+            [
+                "models:",
+                "  model_defaults: {}",
+                "  candidates:",
+                "    - name: response_model",
+                "      kind: response",
+                "      params: {}",
+                "outputs:",
+                f"  prediction_dir: {(tmp_path / 'predictions').as_posix()}",
+                f"  metric_dir: {(tmp_path / 'metrics').as_posix()}",
+                f"  figure_dir: {(tmp_path / 'figures').as_posix()}",
+                "selection:",
+                "  primary_split: validation",
+                "  primary_budget_fraction: 0.05",
+                "  primary_metric: policy_value",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    expected_predictions = {
+        "response_model": tmp_path / "response.parquet",
+    }
+
+    manifest_path = tmp_path / "manifest.json"
+    selection_path = tmp_path / "selection.json"
+
+    observed_manifest_predictions = {}
+
+    monkeypatch.setattr(
+        pipeline,
+        "standardize_prepared_dataset",
+        lambda dataset_config: {
+            "visit": tmp_path / "decision.parquet",
+        },
+    )
+
+    monkeypatch.setattr(
+        pipeline,
+        "train_configured_candidates",
+        lambda **kwargs: expected_predictions,
+    )
+
+    def fake_create_manifest(
+        dataset_config_path,
+        modeling_config_path,
+        outcome,
+        experiment_id,
+        prediction_artifacts,
+    ):
+        observed_manifest_predictions.update(prediction_artifacts)
+        return manifest_path
+
+    monkeypatch.setattr(
+        pipeline,
+        "create_experiment_manifest",
+        fake_create_manifest,
+    )
+
+    monkeypatch.setattr(
+        pipeline,
+        "evaluate_predictions",
+        lambda **kwargs: selection_path,
+    )
+
+    result_manifest, result_selection = pipeline.run_experiment(
+        dataset_config_path=dataset_config_path,
+        modeling_config_path=modeling_config_path,
+        experiment_id="synthetic-visit-001",
+        outcome="visit",
+    )
+
+    assert observed_manifest_predictions == expected_predictions
+    assert result_manifest == manifest_path
+    assert result_selection == selection_path
+
+
+def test_run_experiment_standardizes_before_training(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_config_path = tmp_path / "dataset.yaml"
+    modeling_config_path = tmp_path / "modeling.yaml"
+
+    dataset_config_path.write_text(
+        "\n".join(
+            [
+                "dataset:",
+                "  name: synthetic",
+                f"  prepared_path: {(tmp_path / 'prepared.parquet').as_posix()}",
+                "schema:",
                 "  treatment_column: treatment",
                 "  split_column: split",
                 "  feature_columns:",
@@ -156,53 +273,57 @@ def test_run_experiment_passes_exact_training_outputs(
         encoding="utf-8",
     )
 
-    expected_predictions = {
-        "response_model": tmp_path / "response.parquet",
-    }
+    calls = []
 
-    manifest_path = tmp_path / "manifest.json"
-    selection_path = tmp_path / "selection.json"
+    def fake_standardize(dataset_config):
+        calls.append("standardize")
 
-    observed_manifest_predictions = {}
+        return {
+            "visit": tmp_path / "decision.parquet",
+        }
+
+    def fake_train_configured_candidates(**kwargs):
+        calls.append("train")
+
+        return {
+            "response_model": tmp_path / "response.parquet",
+        }
+
+    monkeypatch.setattr(
+        pipeline,
+        "standardize_prepared_dataset",
+        fake_standardize,
+    )
 
     monkeypatch.setattr(
         pipeline,
         "train_configured_candidates",
-        lambda **kwargs: expected_predictions,
+        fake_train_configured_candidates,
     )
-
-    def fake_create_manifest(
-        dataset_config_path,
-        modeling_config_path,
-        outcome,
-        experiment_id,
-        prediction_artifacts,
-    ):
-        observed_manifest_predictions.update(prediction_artifacts)
-        return manifest_path
 
     monkeypatch.setattr(
         pipeline,
         "create_experiment_manifest",
-        fake_create_manifest,
+        lambda **kwargs: tmp_path / "manifest.json",
     )
 
     monkeypatch.setattr(
         pipeline,
         "evaluate_predictions",
-        lambda **kwargs: selection_path,
+        lambda **kwargs: tmp_path / "selection.json",
     )
 
-    result_manifest, result_selection = pipeline.run_experiment(
+    pipeline.run_experiment(
         dataset_config_path=dataset_config_path,
         modeling_config_path=modeling_config_path,
         experiment_id="synthetic-visit-001",
         outcome="visit",
     )
 
-    assert observed_manifest_predictions == expected_predictions
-    assert result_manifest == manifest_path
-    assert result_selection == selection_path
+    assert calls == [
+        "standardize",
+        "train",
+    ]
 
 
 def test_train_configured_candidates_rejects_model_name_mismatch(

@@ -162,12 +162,19 @@ def load_locked_test_prediction_frames(
                 f"{missing_text}"
             )
 
-        test_frame = frame.loc[frame["split"] == LOCKED_TEST_SPLIT].copy()
-        if test_frame.empty:
+        observed_splits = {
+            str(split)
+            for split in frame["split"].unique()
+        }
+
+        if observed_splits != {LOCKED_TEST_SPLIT}:
             raise ValueError(
-                f"{policy} test predictions are missing from artifact "
-                f"{prediction_path}."
+                f"{policy} locked-test prediction artifact must contain "
+                f"only '{LOCKED_TEST_SPLIT}' rows. "
+                f"Received splits: {sorted(observed_splits)}."
             )
+
+        test_frame = frame.copy()
 
         test_frame["artifact_name"] = prediction_path.name
         test_frame["policy_name"] = policy

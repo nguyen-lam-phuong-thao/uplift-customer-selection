@@ -44,7 +44,6 @@ def _write_dataset_config(tmp_path: Path, data_path: Path) -> Path:
                 f"  name: {DATASET_NAME}",
                 f"  prepared_path: {data_path.as_posix()}",
                 "schema:",
-                "  row_id_column: row_id",
                 "  treatment_column: treatment",
                 "  split_column: split",
                 "  feature_columns:",

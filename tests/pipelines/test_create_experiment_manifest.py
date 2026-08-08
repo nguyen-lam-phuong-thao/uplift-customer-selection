@@ -21,7 +21,6 @@ def _write_dataset_config(tmp_path: Path) -> Path:
                 "  name: synthetic",
                 f"  prepared_path: {(tmp_path / 'prepared.parquet').as_posix()}",
                 "schema:",
-                "  row_id_column: row_id",
                 "  treatment_column: treatment",
                 "  split_column: split",
                 "  feature_columns:",

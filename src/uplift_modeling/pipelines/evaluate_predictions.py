@@ -269,22 +269,38 @@ def get_selection_gate_settings(
         raise ValueError(
             "Config section 'selection' must be a mapping when present."
         )
+    if "baseline_policy" in selection_config:
+        raise ValueError(
+            "Selection.baseline_policy is not configurable."
+            f"The framework baseline is '{DEFAULT_BASELINE_POLICY}'."
+        )
 
+    primary_budget_fraction = float(
+        selection_config.get(
+            "primary_budget_fraction",
+            TOPK_BUDGET_FRACTIONS[1],
+        )
+    )
+
+    if primary_budget_fraction not in TOPK_BUDGET_FRACTIONS:
+        supported_budgets = ", ".join(
+            str(fraction)
+            for fraction in TOPK_BUDGET_FRACTIONS
+        )
+        raise ValueError(
+            "selection.primary_budget_fraction must be one of the "
+            f"supported budget fractions: {supported_budgets}. "
+            f"Received: {primary_budget_fraction}"
+        )
+    
     return SelectionGateSettings(
         outcome=outcome,
         split=validate_standard_evaluation_splits(
             (str(selection_config.get("primary_split", SELECTION_SPLIT)),)
         )[0],
-        budget_fraction=float(
-            selection_config.get(
-                "primary_budget_fraction",
-                TOPK_BUDGET_FRACTIONS[1],
-            )
-        ),
-        metric=str(selection_config.get("primary_metric", BOOTSTRAP_METRICS[0])),
-        baseline_policy=str(
-            selection_config.get("baseline_policy", DEFAULT_BASELINE_POLICY)
-        ),
+        budget_fraction=primary_budget_fraction,
+        metric=str(selection_config.get("primary_metric", BOOTSTRAP_METRICS[0],)),
+        baseline_policy= DEFAULT_BASELINE_POLICY,
     )
 
 
@@ -473,6 +489,31 @@ def evaluate_predictions(
             if bootstrap_budget_fractions is None
             else bootstrap_budget_fractions
         )
+        selection_settings = get_selection_gate_settings(
+            modeling_config,
+            outcome=outcome,
+        )
+
+        unsupported_budgets = [
+            fraction
+            for fraction in budget_fractions
+            if fraction not in TOPK_BUDGET_FRACTIONS
+        ]
+
+        if unsupported_budgets:
+            raise ValueError(
+                "Standard evaluation only supports bootstrap budget "
+                f"fractions {TOPK_BUDGET_FRACTIONS}. "
+                f"Received unsupported value(s): {unsupported_budgets}"
+            )
+
+        if selection_settings.budget_fraction not in budget_fractions:
+            raise ValueError(
+                "Bootstrap budget fractions must include the primary "
+                "selection budget "
+                f"{selection_settings.budget_fraction}."
+            )
+        
         _, bootstrap_contrast_path, bootstrap_payload = (
             save_bootstrap_policy_evaluation(
                 policy_frames=policy_frames,
@@ -508,10 +549,7 @@ def evaluate_predictions(
             metric_dir=metric_dir,
             dataset_name=dataset_name,
             experiment_id=experiment_id,
-            settings=get_selection_gate_settings(
-                modeling_config,
-                outcome=outcome,
-            ),
+            settings=selection_settings,
             source_manifest_path=manifest_path,
             model_artifacts=model_artifacts,
             bootstrap_payload=selection_payload,

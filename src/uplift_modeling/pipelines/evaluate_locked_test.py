@@ -196,7 +196,6 @@ def save_locked_test_predictions(
             model_name=policy_name,
             batch_size=batch_size,
             score_batch=score_batch,
-            row_id_column=dataset_spec.row_id_column,
         )
         save_locked_test_model_provenance(
             model_artifact=model_artifacts[policy_name],

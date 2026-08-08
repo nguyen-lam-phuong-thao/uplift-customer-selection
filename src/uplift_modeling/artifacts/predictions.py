@@ -18,12 +18,10 @@ def build_prediction_frame(
     split_column: str,
     outcome_column: str,
     model_name: str,
-    row_id_column: str = ROW_ID_COLUMN,
 ) -> pd.DataFrame:
     """Build a prediction dataframe that follows the shared contract."""
     validate_row_id_column(
         dataframe,
-        row_id_column=row_id_column,
         context="Prediction source dataframe",
     )
 
@@ -49,7 +47,7 @@ def build_prediction_frame(
 
     return pd.DataFrame(
         {
-            ROW_ID_COLUMN: dataframe[row_id_column].to_numpy(),
+            ROW_ID_COLUMN: dataframe[ROW_ID_COLUMN].to_numpy(),
             "treatment": dataframe[treatment_column].to_numpy(),
             "outcome": dataframe[outcome_column].to_numpy(),
             "split": dataframe[split_column].to_numpy(),
@@ -69,7 +67,6 @@ def save_prediction_parquet_in_batches(
     model_name: str,
     batch_size: int,
     score_batch: Callable[[pd.DataFrame], np.ndarray],
-    row_id_column: str = ROW_ID_COLUMN,
 ) -> Path:
     """Score dataframes by batch and save predictions as parquet."""
     if batch_size <= 0:
@@ -111,7 +108,6 @@ def save_prediction_parquet_in_batches(
                     split_column=split_column,
                     outcome_column=outcome_column,
                     model_name=model_name,
-                    row_id_column=row_id_column,
                 )
                 batch_row_ids = set(prediction_batch[ROW_ID_COLUMN].tolist())
                 overlapping_ids = sorted(seen_row_ids.intersection(batch_row_ids))

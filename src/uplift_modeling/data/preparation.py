@@ -10,8 +10,10 @@ from uplift_modeling.data.dataset_spec import (
     DatasetSpec,
     validate_supported_outcome,
 )
-from uplift_modeling.data.row_id import validate_row_id_column
-
+from uplift_modeling.data.row_id import (
+    ROW_ID_COLUMN,
+    validate_row_id_column,
+)
 
 def build_decision_dataset(
     dataframe: pd.DataFrame,
@@ -30,7 +32,7 @@ def build_decision_dataset(
     validate_supported_outcome(dataset_spec, outcome_column)
 
     selected_columns = [
-        dataset_spec.row_id_column,
+        ROW_ID_COLUMN,
         *dataset_spec.feature_columns,
         dataset_spec.treatment_column,
         outcome_column,
@@ -46,7 +48,6 @@ def build_decision_dataset(
 
     validate_row_id_column(
         dataframe,
-        row_id_column=dataset_spec.row_id_column,
         context="Decision dataset",
     )
 
