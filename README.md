@@ -223,7 +223,7 @@ Locked-test evaluation is run separately after the champion has been selected.
 
 ## Kaggle Training Notebook
 
-A Criteo uplift-training notebook is available here:
+A Uplift-training notebook is available here:
 
 [**Criteo uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training)
 

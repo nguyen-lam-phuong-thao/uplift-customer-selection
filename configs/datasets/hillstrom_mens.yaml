@@ -1,0 +1,37 @@
+dataset:
+  name: hillstrom_mens
+  prepared_path: data/interim/hillstrom/hillstrom_mens_prepared.parquet
+
+schema:
+  treatment_column: treatment
+  split_column: split
+
+  feature_columns:
+    - recency
+    - history
+    - newbie
+    - product_affinity_Both
+    - product_affinity_Mens only
+    - product_affinity_Womens only
+    - channel_Multichannel
+    - channel_Phone
+    - channel_Web
+    - zip_code_Rural
+    - zip_code_Suburban
+    - zip_code_Urban
+
+  outcome_columns:
+    - visit
+    - conversion
+
+split:
+  assign_if_missing: true
+  train_size: 0.6
+  validation_size: 0.2
+  test_size: 0.2
+  random_state: 42
+
+outputs:
+  processed_paths:
+    visit: data/processed/hillstrom/hillstrom_mens_decision_visit.parquet
+    conversion: data/processed/hillstrom/hillstrom_mens_decision_conversion.parquet
