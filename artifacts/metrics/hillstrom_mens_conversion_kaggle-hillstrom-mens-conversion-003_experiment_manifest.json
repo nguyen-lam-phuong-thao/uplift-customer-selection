@@ -1,0 +1,48 @@
+{
+  "artifact_type": "experiment_manifest",
+  "dataset_config_path": "configs/datasets/hillstrom_mens.yaml",
+  "dataset_name": "hillstrom_mens",
+  "experiment_id": "kaggle-hillstrom-mens-conversion-003",
+  "model_artifacts": {
+    "t_learner_lgbm": {
+      "artifact_type": "model_provenance",
+      "control_model_uri": "models:/m-806382f835384bc5ab94262286557cc4",
+      "dataset_name": "hillstrom_mens",
+      "mlflow_run_id": "368447eaa2f446f99e7dd5ed3a81101d",
+      "model_kind": "t_learner",
+      "outcome": "conversion",
+      "policy_name": "t_learner_lgbm",
+      "prediction_artifact": "hillstrom_mens_conversion_t_learner_lgbm_run01_predictions.parquet",
+      "treatment_model_uri": "models:/m-3a8f21b3a18f4843a21ab84ccb3a259b"
+    },
+    "treated_response_lgbm": {
+      "artifact_type": "model_provenance",
+      "dataset_name": "hillstrom_mens",
+      "mlflow_run_id": "47bb2d191ce847259c775945d218127c",
+      "model_kind": "response",
+      "model_uri": "models:/m-1b37b4daff144489ba4ce79405c4b217",
+      "outcome": "conversion",
+      "policy_name": "treated_response_lgbm",
+      "prediction_artifact": "hillstrom_mens_conversion_treated_response_lgbm_run01_predictions.parquet"
+    },
+    "x_learner_lgbm": {
+      "artifact_type": "model_provenance",
+      "constant_treatment_rate_weight": 0.5000195564594986,
+      "control_effect_model_uri": "models:/m-cf47882fc50946ab8c5c45bcc04ccc18",
+      "dataset_name": "hillstrom_mens",
+      "mlflow_run_id": "255bc18897214b51b98f4018cd5e072d",
+      "model_kind": "x_learner",
+      "outcome": "conversion",
+      "policy_name": "x_learner_lgbm",
+      "prediction_artifact": "hillstrom_mens_conversion_x_learner_lgbm_run01_predictions.parquet",
+      "treatment_effect_model_uri": "models:/m-6dc4941828a546daa8ed9d2c6d932b93"
+    }
+  },
+  "modeling_config_path": "configs/modeling/hillstrom_uplift_lgbm.yaml",
+  "outcome": "conversion",
+  "prediction_artifacts": {
+    "t_learner_lgbm": "artifacts/predictions/hillstrom_mens_conversion_t_learner_lgbm_run01_predictions.parquet",
+    "treated_response_lgbm": "artifacts/predictions/hillstrom_mens_conversion_treated_response_lgbm_run01_predictions.parquet",
+    "x_learner_lgbm": "artifacts/predictions/hillstrom_mens_conversion_x_learner_lgbm_run01_predictions.parquet"
+  }
+}

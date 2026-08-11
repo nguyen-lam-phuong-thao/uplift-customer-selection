@@ -1,0 +1,48 @@
+{
+  "artifact_type": "experiment_manifest",
+  "dataset_config_path": "configs/datasets/hillstrom_mens.yaml",
+  "dataset_name": "hillstrom_mens",
+  "experiment_id": "kaggle-hillstrom-mens-visit-003",
+  "model_artifacts": {
+    "t_learner_lgbm": {
+      "artifact_type": "model_provenance",
+      "control_model_uri": "models:/m-6cc5a818388c4f7bbe1408a4ef2b8a7f",
+      "dataset_name": "hillstrom_mens",
+      "mlflow_run_id": "7545959cb35046729a772f490f7a54c7",
+      "model_kind": "t_learner",
+      "outcome": "visit",
+      "policy_name": "t_learner_lgbm",
+      "prediction_artifact": "hillstrom_mens_visit_t_learner_lgbm_run01_predictions.parquet",
+      "treatment_model_uri": "models:/m-0db308831a9d498b8930ad4518c79efb"
+    },
+    "treated_response_lgbm": {
+      "artifact_type": "model_provenance",
+      "dataset_name": "hillstrom_mens",
+      "mlflow_run_id": "04e3bdcaa8f64f6180a45aebb4247afb",
+      "model_kind": "response",
+      "model_uri": "models:/m-f27dbca3f2944ae8bada9958cdaada3d",
+      "outcome": "visit",
+      "policy_name": "treated_response_lgbm",
+      "prediction_artifact": "hillstrom_mens_visit_treated_response_lgbm_run01_predictions.parquet"
+    },
+    "x_learner_lgbm": {
+      "artifact_type": "model_provenance",
+      "constant_treatment_rate_weight": 0.5000195564594986,
+      "control_effect_model_uri": "models:/m-b00e9549fe5a491a99ecba4215736427",
+      "dataset_name": "hillstrom_mens",
+      "mlflow_run_id": "1222c71f1bbe4efdb90b7ba980558f97",
+      "model_kind": "x_learner",
+      "outcome": "visit",
+      "policy_name": "x_learner_lgbm",
+      "prediction_artifact": "hillstrom_mens_visit_x_learner_lgbm_run01_predictions.parquet",
+      "treatment_effect_model_uri": "models:/m-ad5ec81177934a2f86d6d3b2a4aa3794"
+    }
+  },
+  "modeling_config_path": "configs/modeling/hillstrom_uplift_lgbm.yaml",
+  "outcome": "visit",
+  "prediction_artifacts": {
+    "t_learner_lgbm": "artifacts/predictions/hillstrom_mens_visit_t_learner_lgbm_run01_predictions.parquet",
+    "treated_response_lgbm": "artifacts/predictions/hillstrom_mens_visit_treated_response_lgbm_run01_predictions.parquet",
+    "x_learner_lgbm": "artifacts/predictions/hillstrom_mens_visit_x_learner_lgbm_run01_predictions.parquet"
+  }
+}

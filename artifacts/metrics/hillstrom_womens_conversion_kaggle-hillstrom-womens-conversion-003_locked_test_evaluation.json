@@ -1,0 +1,236 @@
+{
+  "artifact_type": "locked_test_evaluation",
+  "bootstrap": {
+    "n_bootstrap": 100,
+    "random_seed": 42,
+    "rows": [
+      {
+        "budget_fraction": 0.01,
+        "budget_pct": 1.0,
+        "ci_lower": 0.004560668956937778,
+        "ci_upper": 0.009065421161627259,
+        "mean": 0.006353174463343443,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.0011168752392185797
+      },
+      {
+        "budget_fraction": 0.01,
+        "budget_pct": 1.0,
+        "ci_lower": 0.0,
+        "ci_upper": 10.083967391304336,
+        "mean": 3.9637700490478376,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 2.8398927505493674
+      },
+      {
+        "budget_fraction": 0.05,
+        "budget_pct": 5.0,
+        "ci_lower": 0.004785105673940622,
+        "ci_upper": 0.009231911232264623,
+        "mean": 0.0065958739808108235,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.0010535186599843723
+      },
+      {
+        "budget_fraction": 0.05,
+        "budget_pct": 5.0,
+        "ci_lower": -1.0594769049200696,
+        "ci_upper": 13.76755446377007,
+        "mean": 5.3990381528707045,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 4.122047559257116
+      },
+      {
+        "budget_fraction": 0.1,
+        "budget_pct": 10.0,
+        "ci_lower": 0.005707520932126324,
+        "ci_upper": 0.010069131813491883,
+        "mean": 0.007422280948926765,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.0011087213142791852
+      },
+      {
+        "budget_fraction": 0.1,
+        "budget_pct": 10.0,
+        "ci_lower": 0.5667826638626774,
+        "ci_upper": 23.532954761151533,
+        "mean": 12.266130954578095,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 6.339158797275925
+      },
+      {
+        "budget_fraction": 0.2,
+        "budget_pct": 20.0,
+        "ci_lower": 0.005736697329422372,
+        "ci_upper": 0.00982212425832154,
+        "mean": 0.007516879802779399,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.0010446824566754454
+      },
+      {
+        "budget_fraction": 0.2,
+        "budget_pct": 20.0,
+        "ci_lower": -2.7049159392789375,
+        "ci_upper": 29.989232558453082,
+        "mean": 12.905739739696921,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 8.818268771381794
+      },
+      {
+        "budget_fraction": 0.3,
+        "budget_pct": 30.0,
+        "ci_lower": 0.006315123278078414,
+        "ci_upper": 0.01021943120202492,
+        "mean": 0.008190474633871297,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.0010664662471371344
+      },
+      {
+        "budget_fraction": 0.3,
+        "budget_pct": 30.0,
+        "ci_lower": -2.5903045016579638,
+        "ci_upper": 37.891252893581616,
+        "mean": 17.941881844314345,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 10.95058842165119
+      }
+    ]
+  },
+  "budget_fractions": [
+    0.01,
+    0.05,
+    0.1,
+    0.2,
+    0.3
+  ],
+  "champion_model_artifact": {
+    "artifact_type": "model_provenance",
+    "dataset_name": "hillstrom_womens",
+    "mlflow_run_id": "898b180607074474b8328b4c336fef04",
+    "model_kind": "response",
+    "model_uri": "models:/m-0ad16c1158eb41b2aea7117641f63676",
+    "outcome": "conversion",
+    "policy_name": "treated_response_lgbm",
+    "prediction_artifact": "hillstrom_womens_conversion_treated_response_lgbm_run01_predictions.parquet"
+  },
+  "champion_policy": "treated_response_lgbm",
+  "dataset_name": "hillstrom_womens",
+  "experiment_id": "kaggle-hillstrom-womens-conversion-003",
+  "locked_test_rows": [
+    {
+      "budget_fraction": 0.01,
+      "budget_pct": 1.0,
+      "incremental_outcome": 4.0,
+      "n_selected": 86,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.006333408197481602,
+      "split": "test"
+    },
+    {
+      "budget_fraction": 0.05,
+      "budget_pct": 5.0,
+      "incremental_outcome": 5.477249724972497,
+      "n_selected": 427,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.0065663940580321855,
+      "split": "test"
+    },
+    {
+      "budget_fraction": 0.1,
+      "budget_pct": 10.0,
+      "incremental_outcome": 11.35647027172451,
+      "n_selected": 854,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.007266997407476854,
+      "split": "test"
+    },
+    {
+      "budget_fraction": 0.2,
+      "budget_pct": 20.0,
+      "incremental_outcome": 13.11726454077013,
+      "n_selected": 1708,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.007497514616338063,
+      "split": "test"
+    },
+    {
+      "budget_fraction": 0.3,
+      "budget_pct": 30.0,
+      "incremental_outcome": 18.440793698712845,
+      "n_selected": 2562,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.008196472197989815,
+      "split": "test"
+    }
+  ],
+  "outcome": "conversion",
+  "prediction_artifacts": {
+    "treated_response_lgbm": "hillstrom_womens_conversion_treated_response_lgbm_kaggle-hillstrom-womens-conversion-003_locked_test_predictions.parquet"
+  },
+  "selection_artifact": "hillstrom_womens_conversion_kaggle-hillstrom-womens-conversion-003_model_selection_gate.json",
+  "split": "test",
+  "uplift_metrics": {
+    "auuc": 9.473689200891458,
+    "cumulative_incremental_outcome": 12.912013139371187,
+    "policy_value": 0.008196472197989815,
+    "positive_rate": 0.00737791310457899,
+    "qini": 3.017682631205865,
+    "row_count": 8539,
+    "treatment_rate": 0.5008783229886403
+  }
+}
