@@ -1,0 +1,58 @@
+project:
+  experiment_name: uplift-modeling
+
+training:
+  train_split: train
+  validation_split: validation
+  prediction_batch_size: 10000
+  early_stopping_rounds: 50
+  log_evaluation_period: 25
+
+models:
+  model_defaults:
+    objective: binary
+    boosting_type: gbdt
+    n_estimators: 2000
+    learning_rate: 0.03
+    num_leaves: 31
+    max_depth: 6
+    min_child_samples: 200
+    subsample: 0.8
+    subsample_freq: 1
+    colsample_bytree: 0.8
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+    random_state: 42
+    n_jobs: -1
+    importance_type: gain
+    verbosity: -1
+
+  candidates:
+    - name: treated_response_lgbm
+      kind: response
+      params: {}
+
+    - name: t_learner_lgbm
+      kind: t_learner
+      params: {}
+
+    - name: x_learner_lgbm
+      kind: x_learner
+      params: {}
+
+outputs:
+  prediction_dir: artifacts/predictions
+  metric_dir: artifacts/metrics
+  figure_dir: artifacts/figures
+
+selection:
+  primary_split: validation
+  primary_budget_fraction: 0.2
+  primary_metric: policy_value
+
+tracking:
+  log_predictions: false
+
+# debug:
+#   sample_rows: 1000000
+#   random_state: 42
