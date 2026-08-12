@@ -227,6 +227,10 @@ A Uplift-training notebook is available here:
 
 [**Criteo uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training)
 
+[**Hillstrom_womens Uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-womens-uplift-training)
+
+[**Hillstrom_mens Uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-men-uplift-training)
+
 ---
 
 ## Repository Structure
