@@ -19,8 +19,8 @@ Dữ liệu phù hợp với bài toán uplift vì có đầy đủ ba thành ph
     | No E-Mail       | 21,306    | 33.2906%   |
 
 - Sample-ratio test không cho thấy allocation bất thường (`χ² = 0.203`, `p = 0.904`);
-- Covariate balance tốt, maximum absolute SMD chỉ khoảng **0.014**;
-- Các subgroup chính đều có observation ở các treatment arm;
+- Covariate balance tốt, maximum absolute SMD chỉ khoảng **0.014**,
+- Mọi observed level của các feature được kiểm tra đều có observation ở cả ba treatment arm,
 
     | Feature     | Zero Cells | Minimum Group Size |
     |-------------|------------|--------------------|
@@ -67,9 +67,9 @@ Outcome trung bình khác nhau rõ giữa ba experimental group:
 ![Conversion Rate by Experimental Group](<../week_3/conversion rate by group.png>)
 
 
-Kết quả ban đầu cho thấy cả `Mens E-Mail` và `Womens E-Mail` đều **positive uplift** với nhóm `No E-Mail`. Nhìn chung, Mens E-Mail tạo uplift cao hơn Womens E-Mail, nhưng khoảng cách giữa hai campaign không cố định mà thay đổi theo đặc điểm của từng nhóm khách hàng.
+Kết quả ban đầu cho thấy cả `Mens E-Mail` và `Womens E-Mail` đều có positive average uplift so với `No E-Mail`. Nhìn chung, Mens E-Mail có raw uplift cao hơn Womens E-Mail.
 
-Điều này cho thấy treatment có tác động, nhưng tác động đó không đồng nhất trên toàn bộ population. Vì vậy, bước tiếp theo của EDA tập trung kiểm tra treatment response thay đổi như thế nào theo `recency`, `purchase history`, `historical spending`, `geographic area` và `channel`.
+Tuy nhiên, kết quả trung bình chưa cho biết treatment effect có giống nhau giữa các nhóm khách hàng hay không. Vì vậy, bước tiếp theo của EDA kiểm tra raw uplift theo `recency`, `purchase history`, `historical spending`, `geographic area` và `channel`.
 
 ---
 
@@ -77,11 +77,13 @@ Theo `recency`, một số mốc như 6, 9 và 12 tháng có uplift cao hơn và
 
 ![Customer Recency](<../week_3/recency.png>)
 
-Pattern rõ nhất xuất hiện ở **purchase history**. Khách hàng chỉ từng mua Mens products phản ứng mạnh hơn với Mens E-Mail, nhóm từng mua Womens products phản ứng với cả hai campaign, còn nhóm từng mua cả hai loại sản phẩm phản ứng đặc biệt mạnh với Mens E-Mail.
+Pattern rõ nhất xuất hiện ở **purchase history**. Khách hàng chỉ từng mua Mens products có raw uplift cao hơn với Mens E-Mail; nhóm từng mua Womens products có raw uplift khá tương đồng giữa hai campaign; còn nhóm từng mua cả hai loại sản phẩm có raw uplift đặc biệt cao với Mens E-Mail.
 
 ![Combine Product](<../week_3/combine product.png>)
 
-Lịch sử chi tiêu(`historical spending`) cũng ảnh hưởng đến mức độ phản hồi với treatment, trong đó nhóm `$500–750` nổi bật ở cả hai chiến dịch. Khi kết hợp với recency, nhóm khách hàng có lịch sử chi tiêu `$500–750` và thời gian mua hàng gần nhất khoảng 6 tháng cho thấy mức uplift cao ở cả hai chiến dịch Mens và Womens E-Mail.
+Raw uplift cũng thay đổi giữa các nhóm `historical spending`, trong đó nhóm `$500–750` nổi bật ở cả hai campaign. Khi xem thêm `recency` trong từng spending group, subgroup `$500–750 × recency 6` có raw uplift tương đối cao cho cả Mens và Womens E-Mail.
+
+Tuy nhiên, các high-spending subgroup có ít observation hơn và uplift dao động khá mạnh, nên các extreme value ở vùng này là pattern ổn định.
 
 ![History Spending](<../week_3/history spending.png>)
 
@@ -92,22 +94,22 @@ Các pattern quan sát được kiểm tra bằng hypothesis testing:
 
 | Hypothesis | Kết quả | Kết luận |
 |---|---|---|
-| **H1 — Purchase History** | `p < 0.001` | Reject H₀. Treatment effect thay đổi theo purchase history |
-| **H2 — Recency + Historical Spending** | `p = 0.2549` | Fail to reject H₀. Chưa đủ evidence rằng các khác biệt quan sát được là systematic |
-| **H3 — `$500–750` + recency 6** | Mens: `+7.63 pp`, `p = 0.0624`, Womens: `+10.62 pp`, `p = 0.0130` | Signal rõ với Womens|
-| **H4 — Geographic Area** | `p = 0.3077` | Fail to reject H₀. Chưa có evidence treatment effect thay đổi rõ theo `zip_code` |
+| **H1 — Purchase History** | `p < 0.001` | Reject H₀. Có evidence treatment effect thay đổi theo purchase history |
+| **H2 — Recency + Historical Spending** | `p = 0.2549` | Fail to reject H₀. Chưa đủ evidence về systematic treatment-effect variation |
+| **H3 — `$500–750 × recency 6`** | Mens: `+7.63 pp`, `p = 0.1248`; Womens: `+10.62 pp`, `p = 0.0260` | Chỉ Womens contrast đạt ngưỡng `α = 0.05` |
+| **H4 — Geographic Area** | `p = 0.3077` | Fail to reject H₀. Chưa đủ evidence về systematic geographic heterogeneity |
 
 ### Conclusion
 
-Kết quả phân tích khám phá (EDA) và kiểm định giả thuyết cho thấy mức độ tác động của các chiến dịch email có sự khác biệt rõ rệt tùy theo đặc điểm của khách hàng. 
+EDA cho thấy raw uplift thay đổi theo một số đặc điểm khách hàng, nhưng hypothesis testing không hỗ trợ tất cả các pattern quan sát được.
 
-Trong đó, lịch sử mua hàng là yếu tố duy nhất có bằng chứng thống kê rõ ràng nhất về việc chi phối hiệu quả chiến dịch với mức ý nghĩa cao ($p < 0.001$). Ngược lại, các yếu tố về thời gian gần đây mua hàng (recency), lịch sử chi tiêu tổng thể và khu vực địa lý không tạo ra sự khác biệt hệ thống mang tính ổn định trên diện rộng. 
+`Purchase history` là yếu tố có evidence rõ nhất về treatment-effect heterogeneity (`p < 0.001`). Ngược lại, các test cho `recency`, `historical spending` và `geographic area` chưa cung cấp đủ evidence về systematic treatment-effect variation.
 
-Mặc dù vậy, phân tích vẫn ghi nhận một điểm sáng đáng chú ý ở nhóm khách hàng có mức chi tiêu từ 500-750 USD kết hợp với thời gian mua hàng gần nhất là 6 tháng. Cụ thể, nhóm này đem lại mức tăng trưởng (uplift) vượt trội khoảng 10.62 điểm phần trăm đối với chiến dịch email nữ ($p = 0.0130$). 
+Subgroup `$500–750 × recency 6` cũng đáng chú ý trong exploratory analysis. So với các khách hàng còn lại, treatment-effect difference ước lượng là `+7.63 pp` cho Mens E-Mail (`p = 0.1248`) và `+10.62 pp` cho Womens E-Mail (`p = 0.0260`). Chỉ Womens contrast đạt ngưỡng `α = 0.05`.
 
-Nhìn chung, doanh nghiệp nên ưu tiên cá nhân hóa chiến dịch dựa trên lịch sử mua hàng của khách hàng thay vì phụ thuộc vào các yếu tố nhân khẩu học hay thời gian.
+Nhìn chung, `purchase history` là customer characteristic đáng chú ý nhất để tiếp tục theo dõi trong modeling. Các pattern còn lại được xem là exploratory thay vì dùng trực tiếp để đưa ra quyết định targeting.
 
-Điểm cần lưu ý là `conversion` rất hiếm. Điều này sẽ ảnh hưởng trực tiếp đến độ ổn định của uplift estimate khi chuyển sang modeling.
+Một hạn chế quan trọng là `conversion` rất hiếm, điều này có thể làm các treatment-effect estimate cho outcome này kém ổn định hơn khi chuyển sang modeling.
 
 ---
 
@@ -142,7 +144,7 @@ selection:
   primary_metric: policy_value
 ```
 
-Tree complexity được giữ ở mức vừa phải với `num_leaves = 31`, `max_depth = 6` và `min_child_samples = 200`. Primary selection budget được đặt ở **20%**, tương ứng khoảng **1.7k validation customers** cho mỗi experiment.
+Tree complexity được giữ ở mức vừa phải với `num_leaves = 31`, `max_depth = 6` và `min_child_samples = 200`. Primary selection budget được đặt ở **20%**, tương ứng khoảng **1.7k khách hàng được chọn trên validation** cho mỗi experiment.
 
 Ba candidate được train cho từng outcome:
 
@@ -175,7 +177,7 @@ Response Model training diagnostics:
 | Womens | `visit` | 0.621 | 0.1825 |
 
 
-Điểm quan trọng nhất ở training layer là `conversion` chỉ có **78 positive cases ở Mens** và **62 ở Womens**, trong khi `visit` có hơn một nghìn positive. Vì vậy conversion có ít statistical support hơn nhiều cho việc ước lượng treatment effect và so sánh policy.
+Điểm đáng chú ý là `conversion` chỉ có **78 positive cases ở Mens** và **62 ở Womens**, trong khi `visit` có hơn một nghìn positive cases. Vì vậy, việc ước lượng treatment effect và so sánh policy cho `conversion` dựa trên ít observed outcomes hơn đáng kể.
 
 ---
 
@@ -194,10 +196,7 @@ Response Model training diagnostics:
 
 ![Mens Conversion Uplift Curve](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run01_uplift_curve.png)
 
-T-Learner có AUUC và Qini cao nhất, cho thấy ranking của model tạo cumulative incremental conversion tốt hơn hai policy còn lại khi xét trên toàn validation set.
-
-Trên Qini Curve, T-Learner và X-Learner chủ yếu tách khỏi Response Model ở phần giữa và cuối population; còn phần đầu ranking vẫn dao động khá mạnh. Uplift Curve cũng giảm nhanh sau các Top-K đầu và ba model dần hội tụ khi population tăng.
-
+T-Learner có AUUC và Qini cao nhất. Xét tổng thể trên toàn ranking curve, T-Learner có kết quả tốt hơn Response Model và X-Learner theo hai metric này.
 
 ---
 
@@ -216,11 +215,9 @@ Trên Qini Curve, T-Learner và X-Learner chủ yếu tách khỏi Response Mode
 ![Womens Conversion Uplift Curve](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run01_uplift_curve.png)
 
 
-Womens có pattern tương tự: T-Learner và X-Learner đều có Qini/AUUC cao hơn Response Model, trong đó hai uplift learner gần như tương đương nhau.
+Các curve gợi ý một số khác biệt trong ranking giữa các model, nhưng kết quả ở vùng Top-K nhỏ vẫn dao động khá mạnh.
 
-Qini Curve cho thấy lợi thế của T/X chủ yếu xuất hiện sau phần đầu population, trong khi Uplift Curve còn dao động cả âm và dương ở vùng Top-K nhỏ. Điều này cho thấy ranking signal có tồn tại nhưng chưa ổn định ở những nhóm khách hàng nhỏ.
-
-Với chỉ **62 conversion trên validation**, ít hơn cả Mens, kết quả này chưa đủ để kết luận uplift learner tốt hơn baseline chỉ dựa trên Qini/AUUC.
+Với chỉ **62 positive conversions trên validation**, nên chưa xem chênh lệch Qini/AUUC là đủ để kết luận uplift learner tốt hơn baseline.
 
 ---
 
@@ -238,7 +235,7 @@ Với chỉ **62 conversion trên validation**, ít hơn cả Mens, kết quả 
 
 ![Mens Visit Uplift Curve](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run01_uplift_curve.png)
 
-Mens visit cho kết quả khá rõ: Response Model có AUUC và Qini cao nhất, trong khi Qini của T-Learner và X-Learner đều âm. Trên Qini Curve, Response Model nằm trên hai uplift learner ở phần lớn vùng giữa population, cho thấy cách ranking theo khả năng `visit` hiện tạo incremental outcome tốt hơn ranking treatment effect của T/X.
+Xét tổng thể trên validation curve, ranking của Response Model tạo cumulative incremental outcome tốt hơn ranking của T-Learner và X-Learner.
 
 Uplift Curve của cả ba model vẫn dương sau vùng Top-K đầu, tức campaign có tác động trên các nhóm được chọn. Tuy nhiên, T/X chưa sắp xếp được những khách hàng có treatment response cao lên phía trước tốt hơn Response Model.
 
@@ -259,9 +256,9 @@ Uplift Curve của cả ba model vẫn dương sau vùng Top-K đầu, tức cam
 
 Womens visit lại cho pattern ngược với Mens. T-Learner và X-Learner đều có AUUC/Qini cao hơn Response Model, trong đó X-Learner đứng đầu. Trên Qini Curve, hai uplift learner tách lên khá rõ ở phần giữa population, cho thấy chúng sắp xếp được một số nhóm khách hàng có incremental response cao lên trước baseline.
 
-Uplift Curve cũng ổn định hơn `conversion`: sau vùng đầu dao động, uplift duy trì dương trên phần lớn population. Điều này phù hợp với việc `visit` có khoảng **1,100 positive cases** trên validation, nên treatment-effect ranking có nhiều dữ liệu để ước lượng hơn conversion.
+Uplift Curve cũng ổn định hơn `conversion`: sau vùng đầu dao động, uplift duy trì dương trên phần lớn population. `visit` cũng có khoảng **1,100 positive cases** trên validation, nhiều hơn đáng kể so với `conversion`, nên các treatment-effect estimate dựa trên nhiều observed outcomes hơn.
 
-Như vậy, **Womens visit là trường hợp có signal uplift ranking rõ nhất ở validation**. Tuy nhiên, lợi thế này được đo trên toàn curve; model có thực sự tốt hơn Response tại **Top 20%** hay không vẫn phải được kiểm tra ở policy evaluation và bootstrap phía sau.
+Trong bốn experiment–outcome combinations, `Womens visit` cho thấy lợi thế rõ nhất của uplift learners khi xét Qini/AUUC trên toàn curve. Tuy nhiên, primary selection của experiment diễn ra tại **Top 20%**, nên kết quả toàn curve chưa quyết định champion.
 
 ---
 
@@ -274,7 +271,7 @@ Như vậy, **Womens visit là trường hợp có signal uplift ranking rõ nh�
 | Mens | `visit` | 157.279 | **177.874** | 161.878 | Response Model |
 | Womens | `visit` | 142.914 | **166.871** | 136.673 | Response Model |
 
-Các giá trị trong bảng là incremental outcome trên validation tại Top 20%.
+Các giá trị trong bảng là **estimated incremental outcome** trên validation tại Top 20%.
 
 Với `conversion`, T-Learner có point estimate tốt nhất ở cả Mens và Womens. Tuy nhiên số conversion quan sát được quá ít nên chênh lệch point estimate chưa đủ để chọn model.
 
@@ -305,10 +302,9 @@ Kết quả tại primary budget 20%:
 | Womens | `visit` | T-Learner | -0.000033 | [-0.008631, 0.007723] | Failed |
 | Womens | `visit` | X-Learner | +0.000305 | [-0.007136, 0.008921] | Failed |
 
-Không candidate nào có confidence interval hoàn toàn lớn hơn 0, nên Response Model được giữ làm champion cho cả bốn experiment.
+Không candidate nào có 95% confidence interval hoàn toàn lớn hơn 0, nên `treated_response_lgbm` được giữ làm champion cho cả bốn experiment.
 
-Điểm đáng chú ý là lý do giữ Response không hoàn toàn giống nhau giữa các outcome. Với visit, Response Model đã cạnh tranh tốt hoặc tốt nhất ngay tại Top 20%. Với conversion, T/X có một số point estimate cao hơn nhưng số positive quá ít khiến chênh lệch không ổn định qua bootstrap.
-
+Với `visit`, Response Model đã có point estimate cạnh tranh hoặc cao nhất tại Top 20%. Với `conversion`, T-Learner và X-Learner có một số point estimate cao hơn baseline, nhưng bootstrap interval vẫn chứa 0 nên lợi thế đó chưa đủ ổn định để thay champion.
 
 ---
 
@@ -323,9 +319,9 @@ Sau khi champion được chọn trên validation, locked test chỉ đánh giá
 | Mens | `visit` | 5.816 | 164.616 | 161.490 | **[104.522, 233.457]** |
 | Womens | `visit` | 13.304 | 130.000 | 135.916 | **[84.528, 192.438]** |
 
-Với `visit`, champion giữ được kết quả dương trên dữ liệu chưa dùng để selection. Ở Top 20%, Mens tạo khoảng 164.6 incremental visits và Womens khoảng 130.0; bootstrap interval của cả hai đều hoàn toàn lớn hơn 0. Như vậy quyết định giữ Response Model cho visit không chỉ đúng trên validation mà còn giữ được trên locked test.
+Với `visit`, selected Response Model tiếp tục có positive estimated incremental outcome trên dữ liệu chưa được dùng để selection. Ở Top 20%, Mens đạt khoảng **164.6 incremental visits** và Womens khoảng **130.0**; 95% bootstrap interval của cả hai đều hoàn toàn lớn hơn 0. Kết quả này cho thấy selected champion vẫn tạo positive incremental outcome trên locked test.
 
-Với `conversion`, champion cũng có point estimate dương trên test, nhưng confidence interval vẫn chứa 0 ở cả Mens và Womens. Nghĩa là với quy mô dữ liệu hiện tại, chưa đủ bằng chứng để nói policy tạo incremental conversions ổn định.
+Với `conversion`, selected champion cũng có positive point estimate trên test, nhưng 95% confidence interval vẫn chứa 0 ở cả Mens và Womens. Với dữ liệu hiện tại, chưa có đủ evidence rằng incremental conversion của policy ổn định khác 0.
 
 ---
 
@@ -333,16 +329,23 @@ Với `conversion`, champion cũng có point estimate dương trên test, nhưng
 
 Với Hillstrom, cả bốn experiment đều chọn `treated_response_lgbm` làm champion tại budget 20%.
 
-Việc T-Learner và X-Learner không trở thành champion không thể giải thích đơn giản là do Hillstrom có ít dữ liệu.
+Với `conversion`, một hạn chế rõ ràng là **số positive rất ít**: validation chỉ có 62–78 conversions. Các uplift candidate có lúc cao hơn baseline về Qini hoặc point estimate, nhưng bootstrap vẫn cho confidence interval chứa 0. Vì vậy, experiment hiện chưa cung cấp đủ evidence để thay Response Model bằng T-Learner hoặc X-Learner.
 
-Với `conversion`, vấn đề chính là **số positive quá ít**. Validation chỉ có khoảng 62–78 conversions. Uplift model phải ước lượng sự khác biệt giữa Treatment và Control, nên khi số outcome quan sát được trong từng nhóm quá ít thì treatment-effect estimate dễ dao động. Vì vậy, dù T/X-Learner có lúc tốt hơn về Qini hoặc point estimate, bootstrap vẫn chưa cho thấy lợi thế đủ ổn định để thay baseline.
+Với `visit`, outcome rarity ít nghiêm trọng hơn `conversion` vì validation có hơn một nghìn positive cases. EDA cho thấy prior product affinity là nguồn treatment-effect variation rõ nhất, trong khi recency, spending và geography chưa có evidence thống kê rõ ràng.
 
-Với `visit`, số positive lớn hơn nên sample size không còn là hạn chế chính. EDA cho thấy treatment response có khác nhau giữa khách hàng, nhưng pattern rõ nhất chủ yếu nằm ở **purchase history**, trong khi recency, spending và geography chưa cho thấy khác biệt ổn định. Kết quả modeling cho thấy signal này có tồn tại nhưng chưa được T/X-Learner khai thác thành một ranking tốt hơn Response Model tại budget 20%. Womens là trường hợp rõ nhất: uplift learners tốt hơn trên Qini/AUUC toàn curve, nhưng lợi thế đó không tập trung tại đúng nhóm 20% khách hàng được chọn.
+Kết quả modeling cũng không đồng nhất giữa Mens và Womens. Với Mens, Response Model tốt hơn các uplift learners cả trên whole-curve metrics và tại Top 20%. Với Womens, T/X-Learner tốt hơn Response Model về Qini/AUUC trên toàn curve, nhưng lợi thế đó không xuất hiện tại primary budget 20%. Bootstrap sau đó cũng không cho thấy candidate nào cải thiện ổn định so với baseline.
 
-So với Criteo, kết quả này cũng cho thấy cùng một framework không nhất thiết phải chọn cùng một loại model. Ở Criteo, `visit` chọn được X-Learner; còn ở Hillstrom, cả bốn experiment đều giữ Response Model. Điều quan trọng là framework áp dụng cùng một quy trình đánh giá và chỉ thay baseline khi uplift model chứng minh được kết quả đủ ổn định.
+So với Criteo, Hillstrom cho một kết quả selection khác dù sử dụng cùng logic đánh giá. Ở Criteo, `visit` chọn X-Learner làm champion; trong khi ở Hillstrom, cả bốn experiment đều giữ Response Model.
 
-Qua Criteo và Hillstrom, workflow `train → validation evaluation → bootstrap → selection → locked test` đã chạy được trên hai dataset có quy mô và đặc điểm khác nhau mà không cần thay đổi logic đánh giá cốt lõi. Đây là kết quả chính của project ở giai đoạn hiện tại: **framework có thể reuse sang dataset mới và vẫn đưa ra quyết định model theo cùng một nguyên tắc, thay vì được thiết kế riêng cho một dataset hoặc một model cụ thể.**
+Điểm quan trọng ở đây không phải framework luôn phải chọn uplift model, mà là candidate chỉ thay baseline khi chứng minh được improvement đủ ổn định theo cùng selection rule.
+
+Qua Criteo và Hillstrom, tôi đã chạy cùng workflow:
+
+`train → validation evaluation → bootstrap → selection → locked test`
+
+trên hai dataset có quy mô và đặc điểm khác nhau mà không thay đổi logic đánh giá cốt lõi.
+
+Kết quả này cho thấy framework hiện có thể được reuse cho một prepared uplift dataset mới và vẫn áp dụng cùng nguyên tắc model selection, thay vì gắn logic đánh giá với riêng Criteo hoặc một loại model cụ thể.
 
 Bước tiếp theo là thử framework trên một dataset có nhiều feature và cấu trúc treatment effect phức tạp hơn để tiếp tục kiểm tra khả năng reuse và độ ổn định của workflow.
-
 

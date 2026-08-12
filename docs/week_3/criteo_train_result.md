@@ -31,9 +31,9 @@ Biểu đồ cho thấy dữ liệu bị lệch mạnh giữa hai nhóm. Nhóm *
 |---|---:|---|
 | Control (0) | ~2.1M | Nhóm không nhận ads, dùng làm đối chứng |
 | Treatment (1) | ~11.9M | Nhóm nhận ads |
-| Treatment rate | ~85% | Phù hợp với bối cảnh doanh nghiệp chạy ads trên phần lớn khách hàng |
+| Treatment rate | ~85% | Treatment chiếm phần lớn dữ liệu |
 
-Sự mất cân bằng này không phải lỗi dữ liệu. Trong thực tế, doanh nghiệp thường muốn ads tiếp cận phần lớn khách hàng tiềm năng, nên Treatment chiếm đa số là hợp lý. Control được giữ lại để ước lượng phần outcome tăng thêm do treatment.
+Treatment chiếm khoảng 85% dữ liệu, trong khi Control chiếm khoảng 15%. Đây là phân phối treatment quan sát được trong dataset. Control cung cấp nhóm đối chứng để ước lượng phần outcome tăng thêm liên quan đến treatment.
 
 ---
 
@@ -45,16 +45,16 @@ Biểu đồ cho thấy cả hai outcome đều cao hơn ở nhóm Treatment so 
 
 | Outcome | Control rate | Treatment rate | Nhận xét |
 |---|---:|---:|---|
-| `visit` | ~3.8% | ~4.8% | Treatment làm tăng visit rõ hơn |
-| `conversion` | ~0.18% | ~0.30% | Conversion có tăng nhưng rất hiếm |
+| `visit` | ~3.8% | ~4.8% | Treatment có visit rate cao hơn Control |
+| `conversion` | ~0.18% | ~0.30% | Treatment có conversion rate cao hơn Control, nhưng conversion rất hiếm |
 
-Điểm quan trọng là `conversion` hiếm hơn `visit` rất nhiều. Điều này làm cho bài toán conversion khó hơn vì chỉ một thay đổi nhỏ trong số lượng conversion quan sát được cũng có thể làm kết quả uplift dao động.
+`conversion` hiếm hơn `visit` rất nhiều. Vì số positive conversion ít, các ước lượng uplift cho outcome này có thể dao động nhiều hơn.
 
-Tuy nhiên, bảng outcome rate trung bình chỉ cho biết treatment có vẻ tạo tác động dương trên toàn bộ tập khách hàng. Nó chưa trả lời được câu hỏi quan trọng hơn:
+Tuy nhiên, outcome rate trung bình mới chỉ cho thấy sự khác biệt giữa Treatment và Control trên toàn bộ tập khách hàng. Nó chưa trả lời được câu hỏi quan trọng hơn:
 
 > Nên target khách hàng nào trước?
 
-Đây là lý do cần dùng Uplift Modeling thay vì chỉ so sánh outcome rate trung bình.
+Đó là câu hỏi mà phần Uplift Modeling phía sau cần giải quyết.
 
 ---
 

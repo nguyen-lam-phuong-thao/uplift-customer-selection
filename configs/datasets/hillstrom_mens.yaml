@@ -26,9 +26,9 @@ schema:
 
 split:
   assign_if_missing: true
-  train_size: 0.6
-  validation_size: 0.2
-  test_size: 0.2
+  train_size: 0.7
+  validation_size: 0.15
+  test_size: 0.15
   random_state: 42
 
 outputs:
