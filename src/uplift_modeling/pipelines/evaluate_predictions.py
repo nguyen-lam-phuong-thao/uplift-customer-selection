@@ -133,7 +133,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-bootstrap",
         action="store_true",
-        help="Skip bootstrap evaluation and the Selection Gate.",
+        help="Skip bootstrap evaluation, uplift selection, and replacement gate.",
     )
     parser.add_argument(
         "--topk-only",
@@ -261,7 +261,7 @@ def get_selection_gate_settings(
     config: dict[str, Any],
     outcome: str,
 ) -> SelectionGateSettings:
-    """Return model-selection settings for the current evaluated outcome."""
+    """Return uplift-selection and replacement-gate settings."""
     selection_config = config.get("selection", {})
     if selection_config is None:
         selection_config = {}
@@ -300,7 +300,7 @@ def get_selection_gate_settings(
         )[0],
         budget_fraction=primary_budget_fraction,
         metric=str(selection_config.get("primary_metric", BOOTSTRAP_METRICS[0],)),
-        baseline_policy= DEFAULT_BASELINE_POLICY,
+        baseline_policy=DEFAULT_BASELINE_POLICY,
     )
 
 
@@ -467,7 +467,7 @@ def evaluate_predictions(
         random_seed=random_seed,
         evaluation_splits=EVALUATION_SPLITS,
     )
-    save_topk_policy_evaluation_artifacts(
+    _, topk_payload = save_topk_policy_evaluation_artifacts(
         policy_frames=policy_frames,
         policy_paths=policy_paths,
         warnings=topk_warnings,
@@ -480,7 +480,7 @@ def evaluate_predictions(
 
     if skip_bootstrap:
         LOGGER.info(
-            "Skipping bootstrap evaluation and Selection Gate because "
+            "Skipping bootstrap evaluation, uplift selection, and replacement gate "
             "--skip-bootstrap was passed."
         )
     else:
@@ -542,7 +542,7 @@ def evaluate_predictions(
         if not isinstance(model_artifacts, dict) or not model_artifacts:
             raise ValueError(
                 "Experiment manifest must contain model_artifacts "
-                "for champion selection."
+                "for uplift selection and replacement evaluation."
             )
 
         selection_artifact_path, _ = save_model_selection_gate(
@@ -551,6 +551,7 @@ def evaluate_predictions(
             experiment_id=experiment_id,
             settings=selection_settings,
             source_manifest_path=manifest_path,
+            topk_rows=topk_payload["table_rows"],
             model_artifacts=model_artifacts,
             bootstrap_payload=selection_payload,
             bootstrap_json_path=bootstrap_contrast_path,

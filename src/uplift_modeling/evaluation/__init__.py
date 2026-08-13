@@ -7,7 +7,6 @@ from uplift_modeling.evaluation.bootstrap_summary import (
 )
 from uplift_modeling.evaluation.selection_gate import (
     SelectionGateSettings,
-    select_champion_from_bootstrap_payload,
     save_model_selection_gate,
 )
 from uplift_modeling.evaluation.topk_policy import (
@@ -37,7 +36,6 @@ __all__ = [
     "calculate_topk_policy_metrics",
     "calculate_uplift_metrics",
     "save_model_selection_gate",
-    "select_champion_from_bootstrap_payload",
     "SelectionGateSettings",
     "validate_prediction_frame",
 ]

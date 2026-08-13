@@ -11,7 +11,7 @@
 - [Framework Boundary](#framework-boundary)
 - [Input Dataset](#input-dataset)
 - [Current Supported Models](#current-supported-models)
-- [Champion Selection](#champion-selection)
+- [Uplift Selection and Replacement Gate](#uplift-selection-and-replacement-gate)
 - [Training Example](#training-example)
 - [Kaggle Training Notebook](#kaggle-training-notebook)
 - [Repository Structure](#repository-structure)
@@ -34,15 +34,15 @@ Prepared dataset
         ↓
 Standardize dataset
         ↓
-Train candidate models
+Train Response + uplift candidates
         ↓
 Validation evaluation
         ↓
-Paired bootstrap
+Select uplift champion
         ↓
-Champion selection
+Replacement gate vs Response baseline
         ↓
-Locked test
+Locked-test evaluation
 ```
 
 The framework can be reused across datasets, but each dataset still requires its own preparation before entering the framework.
@@ -61,7 +61,8 @@ The framework helps:
 | Prediction alignment | Keep predictions aligned with the correct observations. |
 | Policy evaluation | Evaluate policies under the same conditions. |
 | Statistical comparison | Compare candidates with paired bootstrap. |
-| Champion selection | Select and lock a champion using validation data. |
+| Uplift selection | Select the best uplift model using validation Top-K performance. |
+| Replacement gate | Test whether the selected uplift model reliably outperforms the Response baseline. |
 | Test isolation | Keep the test split independent for final evaluation. |
 | Experiment traceability | Preserve artifacts and model provenance so experiment results can be traced. |
 
@@ -96,22 +97,20 @@ Add internal `row_id`
         ↓
 Create train / validation / test split
         ↓
-Train supported candidates
+Train Response + uplift candidates
         ↓
-Validation predictions
+Validation evaluation
         ↓
-Evaluation + paired bootstrap
+Select uplift champion
         ↓
-Selection Gate
+Replacement gate vs Response baseline
         ↓
-Locked champion
-        ↓
-Locked-test evaluation
+Locked-test evaluation of uplift champion + baseline
 ```
 
 `row_id` is an internal technical identifier created by the framework to keep predictions and evaluation rows aligned across models.
 
-Splits are created deterministically. Validation is used for model comparison and champion selection; test is used only after the champion has been locked.
+Splits are created deterministically. Validation is used for uplift selection and the replacement gate, test is used only after those validation decisions have been frozen.
 
 ---
 
@@ -162,36 +161,37 @@ The input dataset does not need to provide `row_id`; the framework creates it fo
 
 ---
 
-## Current Supported Models
+## Uplift Selection and Replacement Gate
 
-The framework currently supports:
+Both decisions use **validation data only**.
 
-| Model | Role |
-|---|---|
-| `treated_response_lgbm` | Default baseline in the current workflow |
-| `t_learner_lgbm` | Candidate uplift model |
-| `x_learner_lgbm` | Candidate uplift model |
+### Uplift selection
 
-`treated_response_lgbm` is the default baseline in the current workflow.
-
-`random_targeting` is used only as an evaluation benchmark. It is not a deployable model and cannot become the champion.
-
-The framework is designed so that additional model families can be added later through explicit implementation and candidate configuration.
-
----
-
-## Champion Selection
-
-Champion selection uses **validation data only**.
-
-### Selection rules
+Only uplift models participate in uplift-champion selection.
 
 | Step | Rule |
 |---:|---|
-| 1 | Compare each candidate with `treated_response_lgbm`. |
-| 2 | A candidate passes when `ci_lower > 0`. |
-| 3 | If multiple candidates pass, select the candidate with the largest `mean_delta`. |
-| 4 | If no candidate passes, keep the baseline. |
+| 1 | Evaluate the configured uplift candidates at the primary validation Top-K operating point. |
+| 2 | Select the candidate with the largest configured primary metric. |
+| 3 | Break exact ties deterministically by policy name. |
+| 4 | Save the result as `uplift_champion_policy`. |
+
+`treated_response_lgbm` is not allowed to become the uplift champion.
+
+### Replacement gate
+
+After the uplift champion is fixed, compare it with `treated_response_lgbm` using the existing paired bootstrap contrast at the same primary operating point.
+
+| Result | Meaning |
+|---|---|
+| `ci_lower > 0` | `replacement_gate_passed = true`: there is stable evidence that the uplift champion outperforms the Response baseline. |
+| `ci_lower <= 0` | `replacement_gate_passed = false`: the uplift champion remains unchanged, but the Response baseline remains the recommended deployment policy. |
+
+The framework keeps three separate concepts:
+
+- `uplift_champion_policy`: the best uplift model.
+- `replacement_gate_passed`: whether the uplift champion has enough evidence to replace the Response baseline.
+- `recommended_deployment_policy`: the uplift champion when the gate passes, otherwise the Response baseline.
 
 ### Default top-k budgets
 
@@ -203,7 +203,7 @@ Champion selection uses **validation data only**.
 | 20% |
 | 30% |
 
-> **Test isolation:** The test split is not used during model selection.
+> **Test isolation:** The locked test does not select models or change the replacement-gate decision. It evaluates the validation-selected uplift champion and the Response baseline as frozen policies.
 
 ---
 
@@ -215,9 +215,9 @@ Run the full validation experiment with:
 python -m uplift_modeling.pipelines.run_experiment   --dataset-config <dataset-config>   --modeling-config <modeling-config>   --experiment-id <experiment-id>   --outcome <outcome>
 ```
 
-The runner standardizes the prepared dataset, trains configured candidates, creates validation predictions, evaluates the candidates, runs paired bootstrap, and executes the Selection Gate.
+The runner standardizes the prepared dataset, trains the configured models, creates validation predictions, evaluates them, selects the uplift champion from validation Top-K performance, and runs the paired-bootstrap replacement gate against the Response baseline.
 
-Locked-test evaluation is run separately after the champion has been selected.
+Locked-test evaluation is run separately after validation decisions are frozen. It scores both the selected uplift champion and `treated_response_lgbm`, reports their test performance and paired contrast, and does not re-select a model.
 
 ---
 
@@ -264,4 +264,5 @@ For the full workflow, dataset contracts, prediction artifacts, bootstrap, Selec
 | Document | Description |
 |---|---|
 | [`docs/framework_workflow.md`](docs/framework_workflow.md) | Full workflow, dataset contracts, prediction artifacts, bootstrap, Selection Gate, and locked-test rules. |
+
 

@@ -1,4 +1,4 @@
-"""Run locked test-set scoring and reporting for a fixed champion policy."""
+"""Run locked test-set scoring for the selected uplift policy and response baseline."""
 
 import argparse
 import json
@@ -60,8 +60,8 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for locked-test evaluation."""
     parser = argparse.ArgumentParser(
         description=(
-            "Score and evaluate the fixed Selection Gate champion "
-            "on the locked test split."
+            "Score and evaluate the validation-selected uplift policy "
+            "and response baseline on the locked test split."
         )
     )
     parser.add_argument(
@@ -168,7 +168,7 @@ def save_locked_test_predictions(
             prediction_dir=prediction_dir,
             dataset_name=dataset_name,
             outcome=outcome,
-            champion_policy=policy_name,
+            policy_name=policy_name,
             experiment_id=experiment_id,
         )
         if prediction_path.exists():
@@ -282,7 +282,7 @@ def evaluate_locked_test(
         selection_artifact_path
     )
 
-    champion_policy = validate_selection_gate_payload(
+    uplift_champion_policy, baseline_policy = validate_selection_gate_payload(
         selection_payload=selection_payload,
         outcome=outcome,
     )
@@ -305,56 +305,54 @@ def evaluate_locked_test(
             "match experiment manifest."
         )
 
-    champion_model_artifact = selection_payload.get(
-        "champion_model_artifact"
+    uplift_champion_model_artifact = selection_payload.get(
+        "uplift_champion_model_artifact"
     )
 
-    if not isinstance(champion_model_artifact, dict):
+    if not isinstance(uplift_champion_model_artifact, dict):
         raise ValueError(
             "Selection Gate artifact must contain "
-            "'champion_model_artifact'."
+            "'uplift_champion_model_artifact'."
         )
 
     if (
-        champion_model_artifact.get("policy_name")
-        != champion_policy
+        uplift_champion_model_artifact.get("policy_name")
+        != uplift_champion_policy
     ):
         raise ValueError(
-            "Champion model provenance policy_name does not "
-            "match champion_policy."
+            "Uplift champion model provenance policy_name does not "
+            "match uplift_champion_policy."
         )
 
-    if (
-        champion_model_artifact.get("dataset_name")
-        != dataset_name
-    ):
+    if uplift_champion_model_artifact.get("dataset_name") != dataset_name:
         raise ValueError(
-            "Champion model provenance dataset_name does not "
+            "Uplift champion model provenance dataset_name does not "
             "match experiment dataset."
         )
 
-    if champion_model_artifact.get("outcome") != outcome:
+    if uplift_champion_model_artifact.get("outcome") != outcome:
         raise ValueError(
-            "Champion model provenance outcome does not "
+            "Uplift champion model provenance outcome does not "
             "match experiment outcome."
         )
 
     required_policies = (
-        champion_policy,
+        uplift_champion_policy,
+        baseline_policy,
     )
 
-    manifest_model_artifacts = resolve_model_artifacts(
+    model_artifacts = resolve_model_artifacts(
         manifest=manifest,
         required_policies=required_policies,
     )
 
-    manifest_champion_artifact = (
-        manifest_model_artifacts[champion_policy]
-    )
+    manifest_uplift_champion_artifact = model_artifacts[
+        uplift_champion_policy
+    ]
 
-    if champion_model_artifact != manifest_champion_artifact:
+    if uplift_champion_model_artifact != manifest_uplift_champion_artifact:
         raise ValueError(
-            "Selection Gate champion_model_artifact does not "
+            "Selection Gate uplift_champion_model_artifact does not "
             "match the exact model recorded in the experiment manifest."
         )
 
@@ -366,10 +364,6 @@ def evaluate_locked_test(
         project_root=project_root,
         required_policies=required_policies,
     )
-
-    model_artifacts = {
-        champion_policy: champion_model_artifact,
-    }
 
     validate_model_artifacts_match_predictions(
         model_artifacts=model_artifacts,
@@ -397,8 +391,9 @@ def evaluate_locked_test(
         output_path, payload = load_existing_locked_test_evaluation(
             output_path=final_evaluation_path,
             experiment_id=experiment_id,
-            champion_policy=champion_policy,
-            champion_model_artifact=champion_model_artifact,
+            uplift_champion_policy=uplift_champion_policy,
+            baseline_policy=baseline_policy,
+            uplift_champion_model_artifact=uplift_champion_model_artifact,
         )
 
         LOGGER.info(
@@ -416,21 +411,6 @@ def evaluate_locked_test(
 
         return output_path
 
-    deterministic_prediction_path = (
-        build_locked_test_prediction_path(
-            prediction_dir=prediction_dir,
-            dataset_name=dataset_name,
-            outcome=outcome,
-            champion_policy=champion_policy,
-            experiment_id=experiment_id,
-        )
-    )
-
-    if deterministic_prediction_path.exists():
-        raise ValueError(
-            "Incomplete Final Evaluation state: prediction exists "
-            "without final report."
-        )
     processed_data_path = (
         dataset_config.processed_paths[outcome]
     )
