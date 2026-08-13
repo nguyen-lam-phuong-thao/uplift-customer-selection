@@ -1,0 +1,48 @@
+{
+  "artifact_type": "experiment_manifest",
+  "dataset_config_path": "configs/datasets/hillstrom_womens.yaml",
+  "dataset_name": "hillstrom_womens",
+  "experiment_id": "kaggle-hillstrom-womens-conversion-004",
+  "model_artifacts": {
+    "t_learner_lgbm": {
+      "artifact_type": "model_provenance",
+      "control_model_uri": "models:/m-828f46a2f54c4c0390665413390bf746",
+      "dataset_name": "hillstrom_womens",
+      "mlflow_run_id": "503ee7bee5ea4c478ba0635cee29ab38",
+      "model_kind": "t_learner",
+      "outcome": "conversion",
+      "policy_name": "t_learner_lgbm",
+      "prediction_artifact": "hillstrom_womens_conversion_t_learner_lgbm_run01_predictions.parquet",
+      "treatment_model_uri": "models:/m-ea45fa5839814e45a29ccdeffa41240a"
+    },
+    "treated_response_lgbm": {
+      "artifact_type": "model_provenance",
+      "dataset_name": "hillstrom_womens",
+      "mlflow_run_id": "d768ff0949d44a6eb37ffbb65358623c",
+      "model_kind": "response",
+      "model_uri": "models:/m-0ff0a9a01ad040a9882b3334ab64fceb",
+      "outcome": "conversion",
+      "policy_name": "treated_response_lgbm",
+      "prediction_artifact": "hillstrom_womens_conversion_treated_response_lgbm_run02_predictions.parquet"
+    },
+    "x_learner_lgbm": {
+      "artifact_type": "model_provenance",
+      "constant_treatment_rate_weight": 0.5009536556801071,
+      "control_effect_model_uri": "models:/m-4ac34882f45142cbaa7f118264a2ab37",
+      "dataset_name": "hillstrom_womens",
+      "mlflow_run_id": "22ca0833ca8744d68cbebe6daf40dd83",
+      "model_kind": "x_learner",
+      "outcome": "conversion",
+      "policy_name": "x_learner_lgbm",
+      "prediction_artifact": "hillstrom_womens_conversion_x_learner_lgbm_run01_predictions.parquet",
+      "treatment_effect_model_uri": "models:/m-b9c89f35b735412f8d623aece71f4459"
+    }
+  },
+  "modeling_config_path": "configs/modeling/hillstrom_uplift_lgbm.yaml",
+  "outcome": "conversion",
+  "prediction_artifacts": {
+    "t_learner_lgbm": "artifacts/predictions/hillstrom_womens_conversion_t_learner_lgbm_run01_predictions.parquet",
+    "treated_response_lgbm": "artifacts/predictions/hillstrom_womens_conversion_treated_response_lgbm_run02_predictions.parquet",
+    "x_learner_lgbm": "artifacts/predictions/hillstrom_womens_conversion_x_learner_lgbm_run01_predictions.parquet"
+  }
+}

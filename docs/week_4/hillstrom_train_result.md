@@ -349,3 +349,80 @@ Kết quả này cho thấy framework hiện có thể được reuse cho một 
 
 Bước tiếp theo là thử framework trên một dataset có nhiều feature và cấu trúc treatment effect phức tạp hơn để tiếp tục kiểm tra khả năng reuse và độ ổn định của workflow.
 
+---
+
+### Experiment 004 - Metrics Summary
+
+#### Model Training
+
+| Experiment | Outcome | Validation rows | Positive rate | Positive cases |
+|---|---|---:|---:|---:|
+| Mens | `conversion` | 6,392 | 0.923% | 59 |
+| Mens | `visit` | 6,392 | 14.456% | 924 |
+| Womens | `conversion` | 6,404 | 0.750% | 48 |
+| Womens | `visit` | 6,404 | 12.883% | 825 |
+
+Response Model training diagnostics:
+
+| Experiment | Outcome | ROC-AUC | Average Precision |
+|---|---|---:|---:|
+| Mens | `conversion` | 0.631 | 0.0145 |
+| Womens | `conversion` | 0.600 | 0.0107 |
+| Mens | `visit` | 0.632 | 0.2190 |
+| Womens | `visit` | 0.620 | 0.1801 |
+
+#### Validation Evaluation: Qini và AUUC
+
+| Experiment | Outcome | Model | AUUC | Qini |
+|---|---|---|---:|---:|
+| Mens | `conversion` | `t_learner_lgbm` | 10.568 | 0.068 |
+| Mens | `conversion` | `treated_response_lgbm` | 11.773 | 1.273 |
+| Mens | `conversion` | `x_learner_lgbm` | 11.993 | 1.493 |
+| Womens | `conversion` | `t_learner_lgbm` | 9.049 | 4.085 |
+| Womens | `conversion` | `treated_response_lgbm` | 8.896 | 3.932 |
+| Womens | `conversion` | `x_learner_lgbm` | 9.355 | 4.391 |
+| Mens | `visit` | `t_learner_lgbm` | 128.038 | 6.038 |
+| Mens | `visit` | `treated_response_lgbm` | 125.490 | 3.490 |
+| Mens | `visit` | `x_learner_lgbm` | 122.097 | 0.097 |
+| Womens | `visit` | `t_learner_lgbm` | 85.608 | 13.640 |
+| Womens | `visit` | `treated_response_lgbm` | 80.685 | 8.717 |
+| Womens | `visit` | `x_learner_lgbm` | 95.291 | 23.323 |
+
+#### Top-20% Policy Evaluation
+
+| Experiment | Outcome | T-Learner | Response Model | X-Learner | Best point estimate |
+|---|---|---:|---:|---:|---|
+| Mens | `conversion` | 7.088 | 8.659 | 13.360 | X-Learner |
+| Womens | `conversion` | 10.023 | 10.102 | 8.169 | Response Model |
+| Mens | `visit` | 119.185 | 108.031 | 104.368 | T-Learner |
+| Womens | `visit` | 110.792 | 76.835 | 128.777 | X-Learner |
+
+#### Bootstrap và Selection Gate
+
+| Experiment | Outcome | Candidate | Mean Δ policy value | 95% CI | Gate |
+|---|---|---|---:|---:|---|
+| Mens | `conversion` | T-Learner | -0.000509 | [-0.002670, 0.001860] | Failed |
+| Mens | `conversion` | X-Learner | +0.000142 | [-0.001419, 0.001559] | Failed |
+| Mens | `visit` | T-Learner | +0.002677 | [-0.005861, 0.010290] | Failed |
+| Mens | `visit` | X-Learner | +0.000169 | [-0.006399, 0.006612] | Failed |
+| Womens | `conversion` | T-Learner | -0.000013 | [-0.000633, 0.000926] | Failed |
+| Womens | `conversion` | X-Learner | -0.000540 | [-0.002172, 0.000926] | Failed |
+| Womens | `visit` | T-Learner | +0.004762 | [-0.004441, 0.015202] | Failed |
+| Womens | `visit` | X-Learner | +0.009522 | [-0.000201, 0.019971] | Failed |
+
+| Experiment | Outcome | Champion |
+|---|---|---|
+| Mens | `conversion` | `treated_response_lgbm` |
+| Womens | `conversion` | `treated_response_lgbm` |
+| Mens | `visit` | `treated_response_lgbm` |
+| Womens | `visit` | `treated_response_lgbm` |
+
+#### Locked Test Evaluation
+
+| Experiment | Outcome | Test Qini | Top-20% incremental outcome | Bootstrap mean | 95% CI |
+|---|---|---:|---:|---:|---:|
+| Mens | `conversion` | 3.555 | 18.102 | 16.938 | [5.095, 29.629] |
+| Womens | `conversion` | 1.092 | 1.366 | 1.109 | [-10.708, 14.990] |
+| Mens | `visit` | 7.163 | 139.413 | 135.773 | [78.872, 184.539] |
+| Womens | `visit` | 17.821 | 131.083 | 127.189 | [77.056, 189.841] |
+

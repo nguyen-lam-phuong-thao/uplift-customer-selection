@@ -1,0 +1,57 @@
+{
+  "artifact_type": "model_selection_gate",
+  "bootstrap_artifact": "hillstrom_mens_visit_bootstrap_paired_contrasts_run02.json",
+  "champion_model_artifact": {
+    "artifact_type": "model_provenance",
+    "dataset_name": "hillstrom_mens",
+    "mlflow_run_id": "4a7e90de0fba4d1a887dccc853c1d8ad",
+    "model_kind": "response",
+    "model_uri": "models:/m-333301e015504c7db7446bf1aa07b5d8",
+    "outcome": "visit",
+    "policy_name": "treated_response_lgbm",
+    "prediction_artifact": "hillstrom_mens_visit_treated_response_lgbm_run02_predictions.parquet"
+  },
+  "champion_policy": "treated_response_lgbm",
+  "dataset_name": "hillstrom_mens",
+  "experiment_id": "kaggle-hillstrom-mens-visit-004",
+  "explanation_rows": [
+    {
+      "baseline_policy": "treated_response_lgbm",
+      "budget_fraction": 0.2,
+      "ci_lower": -0.005861097160708141,
+      "ci_upper": 0.010289816089731013,
+      "is_champion": false,
+      "mean_delta": 0.0026769363013705,
+      "metric": "policy_value",
+      "outcome": "visit",
+      "passed_selection_gate": false,
+      "policy": "t_learner_lgbm",
+      "selection_reason": "Not selected because ci_lower <= 0.",
+      "split": "validation"
+    },
+    {
+      "baseline_policy": "treated_response_lgbm",
+      "budget_fraction": 0.2,
+      "ci_lower": -0.0063991723553305305,
+      "ci_upper": 0.006612334926487822,
+      "is_champion": false,
+      "mean_delta": 0.00016860633147370947,
+      "metric": "policy_value",
+      "outcome": "visit",
+      "passed_selection_gate": false,
+      "policy": "x_learner_lgbm",
+      "selection_reason": "Not selected because ci_lower <= 0.",
+      "split": "validation"
+    }
+  ],
+  "selection_method": "bootstrap_paired_contrast_ci_lower_positive_largest_mean_delta",
+  "selection_reason": "Selected fallback baseline 'treated_response_lgbm' because no candidate policy passed ci_lower > 0.",
+  "selection_settings": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.2,
+    "metric": "policy_value",
+    "outcome": "visit",
+    "split": "validation"
+  },
+  "source_manifest_path": "/kaggle/working/uplift-customer-selection/artifacts/metrics/hillstrom_mens_visit_kaggle-hillstrom-mens-visit-004_experiment_manifest.json"
+}

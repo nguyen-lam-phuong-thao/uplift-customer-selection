@@ -1,0 +1,13 @@
+{
+  "dataset_name": "hillstrom_mens",
+  "model_name": "treated_response_lgbm",
+  "outcome": "visit",
+  "target_column": "visit",
+  "validation": {
+    "average_precision": 0.21902753440707012,
+    "log_loss": 0.4050525244998925,
+    "positive_rate": 0.14455569461827283,
+    "roc_auc": 0.6323368627227441,
+    "row_count": 6392
+  }
+}

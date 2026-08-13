@@ -1,0 +1,236 @@
+{
+  "artifact_type": "locked_test_evaluation",
+  "bootstrap": {
+    "n_bootstrap": 100,
+    "random_seed": 42,
+    "rows": [
+      {
+        "budget_fraction": 0.01,
+        "budget_pct": 1.0,
+        "ci_lower": 0.0034522894788658084,
+        "ci_upper": 0.009536370462236357,
+        "mean": 0.00602621116716965,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.001508890268526862
+      },
+      {
+        "budget_fraction": 0.01,
+        "budget_pct": 1.0,
+        "ci_lower": 0.0,
+        "ci_upper": 6.878160919540226,
+        "mean": 2.0024370680423216,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 1.9657130139107901
+      },
+      {
+        "budget_fraction": 0.05,
+        "budget_pct": 5.0,
+        "ci_lower": 0.003726177640580072,
+        "ci_upper": 0.009909906335344191,
+        "mean": 0.006778849318655059,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.001635117572851181
+      },
+      {
+        "budget_fraction": 0.05,
+        "budget_pct": 5.0,
+        "ci_lower": -0.22862386913624472,
+        "ci_upper": 14.51391216895742,
+        "mean": 6.707577385428456,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 3.931803691157801
+      },
+      {
+        "budget_fraction": 0.1,
+        "budget_pct": 10.0,
+        "ci_lower": 0.004673400485336205,
+        "ci_upper": 0.011341310601582102,
+        "mean": 0.007795990075073634,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.0016957591734818134
+      },
+      {
+        "budget_fraction": 0.1,
+        "budget_pct": 10.0,
+        "ci_lower": 2.664506476380622,
+        "ci_upper": 25.000814956403186,
+        "mean": 12.941081371975626,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 5.9381858856987595
+      },
+      {
+        "budget_fraction": 0.2,
+        "budget_pct": 20.0,
+        "ci_lower": 0.005337469104633196,
+        "ci_upper": 0.012260207937022125,
+        "mean": 0.008355544278498762,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.0016564085192102653
+      },
+      {
+        "budget_fraction": 0.2,
+        "budget_pct": 20.0,
+        "ci_lower": 5.095011354810117,
+        "ci_upper": 29.629415436510644,
+        "mean": 16.93807322027436,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 6.524337238144703
+      },
+      {
+        "budget_fraction": 0.3,
+        "budget_pct": 30.0,
+        "ci_lower": 0.004994677408119812,
+        "ci_upper": 0.01077514682493636,
+        "mean": 0.007626466193576087,
+        "metric": "policy_value",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 0.0016053370877268584
+      },
+      {
+        "budget_fraction": 0.3,
+        "budget_pct": 30.0,
+        "ci_lower": -3.127940438411945,
+        "ci_upper": 30.917891104317345,
+        "mean": 12.932929909502315,
+        "metric": "incremental_outcome",
+        "n_bootstrap": 100,
+        "n_valid_bootstrap": 100,
+        "policy": "treated_response_lgbm",
+        "random_seed": 42,
+        "split": "test",
+        "std": 9.172096831731826
+      }
+    ]
+  },
+  "budget_fractions": [
+    0.01,
+    0.05,
+    0.1,
+    0.2,
+    0.3
+  ],
+  "champion_model_artifact": {
+    "artifact_type": "model_provenance",
+    "dataset_name": "hillstrom_mens",
+    "mlflow_run_id": "64dedaeb47884b3b8323ab65f1a76414",
+    "model_kind": "response",
+    "model_uri": "models:/m-ad41186d65a04a059daa70d199545d50",
+    "outcome": "conversion",
+    "policy_name": "treated_response_lgbm",
+    "prediction_artifact": "hillstrom_mens_conversion_treated_response_lgbm_run02_predictions.parquet"
+  },
+  "champion_policy": "treated_response_lgbm",
+  "dataset_name": "hillstrom_mens",
+  "experiment_id": "kaggle-hillstrom-mens-conversion-004",
+  "locked_test_rows": [
+    {
+      "budget_fraction": 0.01,
+      "budget_pct": 1.0,
+      "incremental_outcome": 2.1333333333333333,
+      "n_selected": 64,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.005944931163954944,
+      "split": "test"
+    },
+    {
+      "budget_fraction": 0.05,
+      "budget_pct": 5.0,
+      "incremental_outcome": 7.95031055900621,
+      "n_selected": 320,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.00688360450563204,
+      "split": "test"
+    },
+    {
+      "budget_fraction": 0.1,
+      "budget_pct": 10.0,
+      "incremental_outcome": 13.667304911883084,
+      "n_selected": 640,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.007822277847309137,
+      "split": "test"
+    },
+    {
+      "budget_fraction": 0.2,
+      "budget_pct": 20.0,
+      "incremental_outcome": 18.10191855318691,
+      "n_selected": 1279,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.008448060075093867,
+      "split": "test"
+    },
+    {
+      "budget_fraction": 0.3,
+      "budget_pct": 30.0,
+      "incremental_outcome": 14.660521003723941,
+      "n_selected": 1918,
+      "outcome": "conversion",
+      "policy": "treated_response_lgbm",
+      "policy_value": 0.007822277847309137,
+      "split": "test"
+    }
+  ],
+  "outcome": "conversion",
+  "prediction_artifacts": {
+    "treated_response_lgbm": "hillstrom_mens_conversion_treated_response_lgbm_kaggle-hillstrom-mens-conversion-004_locked_test_predictions.parquet"
+  },
+  "selection_artifact": "hillstrom_mens_conversion_kaggle-hillstrom-mens-conversion-004_model_selection_gate.json",
+  "split": "test",
+  "uplift_metrics": {
+    "auuc": 14.554862393350607,
+    "cumulative_incremental_outcome": 22.0,
+    "policy_value": 0.007822277847309137,
+    "positive_rate": 0.009073842302878598,
+    "qini": 3.554862393350607,
+    "row_count": 6392,
+    "treatment_rate": 0.5
+  }
+}
