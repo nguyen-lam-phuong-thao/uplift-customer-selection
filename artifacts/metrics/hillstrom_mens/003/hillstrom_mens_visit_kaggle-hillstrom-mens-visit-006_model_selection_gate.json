@@ -1,0 +1,55 @@
+{
+  "artifact_type": "model_selection_gate",
+  "baseline_contrast_row": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.2,
+    "ci_lower": -0.005861097160708141,
+    "ci_upper": 0.010289816089731013,
+    "mean_delta": 0.0026769363013705,
+    "metric": "policy_value",
+    "n_bootstrap": 100,
+    "n_valid_bootstrap": 100,
+    "outcome": "visit",
+    "policy": "t_learner_lgbm",
+    "replacement_gate_passed": false,
+    "split": "validation"
+  },
+  "baseline_policy": "treated_response_lgbm",
+  "bootstrap_artifact": "hillstrom_mens_visit_bootstrap_paired_contrasts_run01.json",
+  "dataset_name": "hillstrom_mens",
+  "experiment_id": "kaggle-hillstrom-mens-visit-006",
+  "recommended_deployment_policy": "treated_response_lgbm",
+  "replacement_gate_method": "bootstrap_paired_contrast_ci_lower_positive",
+  "replacement_gate_passed": false,
+  "selection_settings": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.2,
+    "metric": "policy_value",
+    "outcome": "visit",
+    "split": "validation"
+  },
+  "source_manifest_path": "/kaggle/working/uplift-customer-selection/artifacts/metrics/hillstrom_mens_visit_kaggle-hillstrom-mens-visit-006_experiment_manifest.json",
+  "uplift_candidate_rows": [
+    {
+      "metric_value": 0.1204630788485607,
+      "policy": "t_learner_lgbm"
+    },
+    {
+      "metric_value": 0.11764705882352941,
+      "policy": "x_learner_lgbm"
+    }
+  ],
+  "uplift_champion_model_artifact": {
+    "artifact_type": "model_provenance",
+    "control_model_uri": "models:/m-d0cbe387f28e40e4a661cda4b5936eae",
+    "dataset_name": "hillstrom_mens",
+    "mlflow_run_id": "d821064bff214fc8bc3454337c9e1240",
+    "model_kind": "t_learner",
+    "outcome": "visit",
+    "policy_name": "t_learner_lgbm",
+    "prediction_artifact": "hillstrom_mens_visit_t_learner_lgbm_run01_predictions.parquet",
+    "treatment_model_uri": "models:/m-b9f241f6751c4ddab9c17afbd73f171d"
+  },
+  "uplift_champion_policy": "t_learner_lgbm",
+  "uplift_selection_method": "primary_topk_metric_largest_value"
+}

@@ -4,10 +4,10 @@
   "outcome": "conversion",
   "target_column": "conversion",
   "validation": {
-    "average_precision": 0.009851796601582734,
-    "log_loss": 0.04278126392978833,
-    "positive_rate": 0.007260803372760276,
-    "roc_auc": 0.5922486652688299,
-    "row_count": 8539
+    "average_precision": 0.01070004693457172,
+    "log_loss": 0.04429703011740758,
+    "positive_rate": 0.007495315427857589,
+    "roc_auc": 0.5996581314243759,
+    "row_count": 6404
   }
 }

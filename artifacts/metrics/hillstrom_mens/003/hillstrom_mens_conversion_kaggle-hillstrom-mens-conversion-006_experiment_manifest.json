@@ -2,40 +2,40 @@
   "artifact_type": "experiment_manifest",
   "dataset_config_path": "configs/datasets/hillstrom_mens.yaml",
   "dataset_name": "hillstrom_mens",
-  "experiment_id": "kaggle-hillstrom-mens-conversion-003",
+  "experiment_id": "kaggle-hillstrom-mens-conversion-006",
   "model_artifacts": {
     "t_learner_lgbm": {
       "artifact_type": "model_provenance",
-      "control_model_uri": "models:/m-806382f835384bc5ab94262286557cc4",
+      "control_model_uri": "models:/m-ade15b5a8c0e451488fc9f6b64b43516",
       "dataset_name": "hillstrom_mens",
-      "mlflow_run_id": "368447eaa2f446f99e7dd5ed3a81101d",
+      "mlflow_run_id": "c3e1ad786db24f5c80e0972821c90778",
       "model_kind": "t_learner",
       "outcome": "conversion",
       "policy_name": "t_learner_lgbm",
       "prediction_artifact": "hillstrom_mens_conversion_t_learner_lgbm_run01_predictions.parquet",
-      "treatment_model_uri": "models:/m-3a8f21b3a18f4843a21ab84ccb3a259b"
+      "treatment_model_uri": "models:/m-76c17b8185fd410ebeb2212ecbd610a7"
     },
     "treated_response_lgbm": {
       "artifact_type": "model_provenance",
       "dataset_name": "hillstrom_mens",
-      "mlflow_run_id": "47bb2d191ce847259c775945d218127c",
+      "mlflow_run_id": "abfa36f6272743379b218e998430fe85",
       "model_kind": "response",
-      "model_uri": "models:/m-1b37b4daff144489ba4ce79405c4b217",
+      "model_uri": "models:/m-649fb1d900ed47c399e7c234e194acb1",
       "outcome": "conversion",
       "policy_name": "treated_response_lgbm",
       "prediction_artifact": "hillstrom_mens_conversion_treated_response_lgbm_run01_predictions.parquet"
     },
     "x_learner_lgbm": {
       "artifact_type": "model_provenance",
-      "constant_treatment_rate_weight": 0.5000195564594986,
-      "control_effect_model_uri": "models:/m-cf47882fc50946ab8c5c45bcc04ccc18",
+      "constant_treatment_rate_weight": 0.5000167622112709,
+      "control_effect_model_uri": "models:/m-f4ceee5d760841adb009ab91374e8440",
       "dataset_name": "hillstrom_mens",
-      "mlflow_run_id": "255bc18897214b51b98f4018cd5e072d",
+      "mlflow_run_id": "4f59dc270fa34941a0aa45c2eafe4e93",
       "model_kind": "x_learner",
       "outcome": "conversion",
       "policy_name": "x_learner_lgbm",
       "prediction_artifact": "hillstrom_mens_conversion_x_learner_lgbm_run01_predictions.parquet",
-      "treatment_effect_model_uri": "models:/m-6dc4941828a546daa8ed9d2c6d932b93"
+      "treatment_effect_model_uri": "models:/m-b29277a5bf734637ba9d6f34f16c9781"
     }
   },
   "modeling_config_path": "configs/modeling/hillstrom_uplift_lgbm.yaml",

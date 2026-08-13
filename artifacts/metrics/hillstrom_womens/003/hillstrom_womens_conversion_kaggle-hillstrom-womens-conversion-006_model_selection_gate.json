@@ -1,0 +1,55 @@
+{
+  "artifact_type": "model_selection_gate",
+  "baseline_contrast_row": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.2,
+    "ci_lower": -0.0006326896998567087,
+    "ci_upper": 0.0009264136220322956,
+    "mean_delta": -1.3117408578305588e-05,
+    "metric": "policy_value",
+    "n_bootstrap": 100,
+    "n_valid_bootstrap": 100,
+    "outcome": "conversion",
+    "policy": "t_learner_lgbm",
+    "replacement_gate_passed": false,
+    "split": "validation"
+  },
+  "baseline_policy": "treated_response_lgbm",
+  "bootstrap_artifact": "hillstrom_womens_conversion_bootstrap_paired_contrasts_run01.json",
+  "dataset_name": "hillstrom_womens",
+  "experiment_id": "kaggle-hillstrom-womens-conversion-006",
+  "recommended_deployment_policy": "treated_response_lgbm",
+  "replacement_gate_method": "bootstrap_paired_contrast_ci_lower_positive",
+  "replacement_gate_passed": false,
+  "selection_settings": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.2,
+    "metric": "policy_value",
+    "outcome": "conversion",
+    "split": "validation"
+  },
+  "source_manifest_path": "/kaggle/working/uplift-customer-selection/artifacts/metrics/hillstrom_womens_conversion_kaggle-hillstrom-womens-conversion-006_experiment_manifest.json",
+  "uplift_candidate_rows": [
+    {
+      "metric_value": 0.007497682577036757,
+      "policy": "t_learner_lgbm"
+    },
+    {
+      "metric_value": 0.007187132294420394,
+      "policy": "x_learner_lgbm"
+    }
+  ],
+  "uplift_champion_model_artifact": {
+    "artifact_type": "model_provenance",
+    "control_model_uri": "models:/m-c422b49b517a492dbf5b21e2a1ca6239",
+    "dataset_name": "hillstrom_womens",
+    "mlflow_run_id": "4adf91ffc2c045258a855d2e5012733e",
+    "model_kind": "t_learner",
+    "outcome": "conversion",
+    "policy_name": "t_learner_lgbm",
+    "prediction_artifact": "hillstrom_womens_conversion_t_learner_lgbm_run01_predictions.parquet",
+    "treatment_model_uri": "models:/m-e5f40c3eaa604fb7b386d5404fb17db4"
+  },
+  "uplift_champion_policy": "t_learner_lgbm",
+  "uplift_selection_method": "primary_topk_metric_largest_value"
+}

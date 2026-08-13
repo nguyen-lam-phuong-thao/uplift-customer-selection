@@ -4,10 +4,10 @@
   "outcome": "visit",
   "target_column": "visit",
   "validation": {
-    "average_precision": 0.18253271875659324,
-    "log_loss": 0.3759687392863955,
-    "positive_rate": 0.12882070500058554,
-    "roc_auc": 0.621023048063645,
-    "row_count": 8539
+    "average_precision": 0.1801351058449896,
+    "log_loss": 0.37653482640291563,
+    "positive_rate": 0.1288257339163023,
+    "roc_auc": 0.6203484929959209,
+    "row_count": 6404
   }
 }

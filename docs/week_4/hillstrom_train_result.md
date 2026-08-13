@@ -191,10 +191,10 @@ Response Model training diagnostics:
 | `treated_response_lgbm` | 17.786 | 2.788 |
 | `x_learner_lgbm` | 18.657 | 3.660 |
 
-![Mens Conversion Qini Curve](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run01_qini_curve.png)
+![Mens Conversion Qini Curve](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run03_qini_curve.png)
 
 
-![Mens Conversion Uplift Curve](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run01_uplift_curve.png)
+![Mens Conversion Uplift Curve](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run03_uplift_curve.png)
 
 T-Learner có AUUC và Qini cao nhất. Xét tổng thể trên toàn ranking curve, T-Learner có kết quả tốt hơn Response Model và X-Learner theo hai metric này.
 
@@ -209,10 +209,10 @@ T-Learner có AUUC và Qini cao nhất. Xét tổng thể trên toàn ranking cu
 | `x_learner_lgbm` | 9.463 | 2.511 |
 
 
-![Womens Conversion Qini Curve](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run01_qini_curve.png)
+![Womens Conversion Qini Curve](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run03_qini_curve.png)
 
 
-![Womens Conversion Uplift Curve](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run01_uplift_curve.png)
+![Womens Conversion Uplift Curve](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run03_uplift_curve.png)
 
 
 Các curve gợi ý một số khác biệt trong ranking giữa các model, nhưng kết quả ở vùng Top-K nhỏ vẫn dao động khá mạnh.
@@ -230,10 +230,10 @@ Với chỉ **62 positive conversions trên validation**, nên chưa xem chênh 
 | `x_learner_lgbm` | 161.625 | -1.822 |
 
 
-![Mens Visit Qini Curve](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run01_qini_curve.png)
+![Mens Visit Qini Curve](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run03_qini_curve.png)
 
 
-![Mens Visit Uplift Curve](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run01_uplift_curve.png)
+![Mens Visit Uplift Curve](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run03_uplift_curve.png)
 
 Xét tổng thể trên validation curve, ranking của Response Model tạo cumulative incremental outcome tốt hơn ranking của T-Learner và X-Learner.
 
@@ -249,10 +249,10 @@ Uplift Curve của cả ba model vẫn dương sau vùng Top-K đầu, tức cam
 | `treated_response_lgbm` | 118.839 | 21.741 |
 | `x_learner_lgbm` | **134.315** | **37.217** |
 
-![Womens Visit Qini Curve](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run01_qini_curve.png)
+![Womens Visit Qini Curve](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run03_qini_curve.png)
 
 
-![Womens Visit Uplift Curve](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run01_uplift_curve.png)
+![Womens Visit Uplift Curve](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run03_uplift_curve.png)
 
 Womens visit lại cho pattern ngược với Mens. T-Learner và X-Learner đều có AUUC/Qini cao hơn Response Model, trong đó X-Learner đứng đầu. Trên Qini Curve, hai uplift learner tách lên khá rõ ở phần giữa population, cho thấy chúng sắp xếp được một số nhóm khách hàng có incremental response cao lên trước baseline.
 

@@ -1,0 +1,45 @@
+{
+  "curve_num_points": 100,
+  "metrics": [
+    {
+      "auuc": 10.568289642021783,
+      "cumulative_incremental_outcome": 21.0,
+      "model_name": "t_learner_lgbm",
+      "policy_value": 0.00688360450563204,
+      "positive_rate": 0.009230287859824781,
+      "qini": 0.06828964202178334,
+      "row_count": 6392,
+      "split": "validation",
+      "treatment_rate": 0.5
+    },
+    {
+      "auuc": 11.773375995785537,
+      "cumulative_incremental_outcome": 21.0,
+      "model_name": "treated_response_lgbm",
+      "policy_value": 0.008135168961201502,
+      "positive_rate": 0.009230287859824781,
+      "qini": 1.2733759957855373,
+      "row_count": 6392,
+      "split": "validation",
+      "treatment_rate": 0.5
+    },
+    {
+      "auuc": 11.99333472273754,
+      "cumulative_incremental_outcome": 21.0,
+      "model_name": "x_learner_lgbm",
+      "policy_value": 0.009386733416770964,
+      "positive_rate": 0.009230287859824781,
+      "qini": 1.49333472273754,
+      "row_count": 6392,
+      "split": "validation",
+      "treatment_rate": 0.5
+    }
+  ],
+  "outcome": "conversion",
+  "prediction_artifacts": [
+    "hillstrom_mens_conversion_t_learner_lgbm_run01_predictions.parquet",
+    "hillstrom_mens_conversion_treated_response_lgbm_run01_predictions.parquet",
+    "hillstrom_mens_conversion_x_learner_lgbm_run01_predictions.parquet"
+  ],
+  "top_fraction": 0.3
+}

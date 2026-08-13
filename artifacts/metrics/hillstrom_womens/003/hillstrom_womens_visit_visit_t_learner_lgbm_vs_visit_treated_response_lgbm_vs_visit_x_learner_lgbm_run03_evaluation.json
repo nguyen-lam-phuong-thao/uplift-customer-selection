@@ -1,0 +1,45 @@
+{
+  "curve_num_points": 100,
+  "metrics": [
+    {
+      "auuc": 85.60826871126599,
+      "cumulative_incremental_outcome": 143.9365029715358,
+      "model_name": "t_learner_lgbm",
+      "policy_value": 0.1299639834234211,
+      "positive_rate": 0.1288257339163023,
+      "qini": 13.640017225498099,
+      "row_count": 6404,
+      "split": "validation",
+      "treatment_rate": 0.5007807620237351
+    },
+    {
+      "auuc": 80.68544720490006,
+      "cumulative_incremental_outcome": 143.9365029715358,
+      "model_name": "treated_response_lgbm",
+      "policy_value": 0.12615974654286413,
+      "positive_rate": 0.1288257339163023,
+      "qini": 8.717195719132164,
+      "row_count": 6404,
+      "split": "validation",
+      "treatment_rate": 0.5007807620237351
+    },
+    {
+      "auuc": 95.29140912699698,
+      "cumulative_incremental_outcome": 143.9365029715358,
+      "model_name": "x_learner_lgbm",
+      "policy_value": 0.1327761965804588,
+      "positive_rate": 0.1288257339163023,
+      "qini": 23.323157641229088,
+      "row_count": 6404,
+      "split": "validation",
+      "treatment_rate": 0.5007807620237351
+    }
+  ],
+  "outcome": "visit",
+  "prediction_artifacts": [
+    "hillstrom_womens_visit_t_learner_lgbm_run01_predictions.parquet",
+    "hillstrom_womens_visit_treated_response_lgbm_run01_predictions.parquet",
+    "hillstrom_womens_visit_x_learner_lgbm_run01_predictions.parquet"
+  ],
+  "top_fraction": 0.3
+}
