@@ -152,6 +152,19 @@ def _evaluation_files(
     return dataset_config_path, modeling_config_path, manifest_path
 
 
+def _topk_payload() -> dict:
+    return {
+        "table_rows": [
+            {
+                "policy_name": MODEL_NAME,
+                "split": "validation",
+                "budget_fraction": 0.05,
+                "policy_value": 0.1,
+            }
+        ]
+    }
+
+
 def test_standard_evaluation_never_accepts_test_rows(tmp_path: Path) -> None:
     prediction_path = tmp_path / "predictions.parquet"
     frame = _prediction_frame()
@@ -267,7 +280,7 @@ def test_bootstrap_and_selection_use_validation_only(
     monkeypatch.setattr(
         pipeline,
         "save_topk_policy_evaluation_artifacts",
-        lambda **kwargs: (tmp_path / "topk.json", {}),
+        lambda **kwargs: (tmp_path / "topk.json", _topk_payload()),
     )
 
     def fake_bootstrap(**kwargs):
@@ -354,7 +367,7 @@ def test_selection_gate_uses_current_outcome(
     monkeypatch.setattr(
         pipeline,
         "save_topk_policy_evaluation_artifacts",
-        lambda **kwargs: (tmp_path / "topk.json", {}),
+        lambda **kwargs: (tmp_path / "topk.json", _topk_payload()),
     )
     monkeypatch.setattr(
         pipeline,

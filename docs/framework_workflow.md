@@ -1,6 +1,6 @@
 # Framework Workflow and Invariants
 
-This document describes the workflow, boundaries, and main invariants of the **Customer Selection with Uplift Modeling** framework.
+This document describes the current workflow, boundaries, and main invariants of the **Customer Selection with Uplift Modeling** framework.
 
 The README provides a short project overview. This document explains the framework behavior in more detail.
 
@@ -8,171 +8,234 @@ The README provides a short project overview. This document explains the framewo
 
 ## 1. Framework Goal
 
-The framework is designed for customer-selection experiments using uplift modeling.
+The framework provides a consistent downstream workflow for customer-selection experiments using uplift modeling.
 
-Its goal is to provide a consistent workflow for:
+It is responsible for:
 
-- Standardizing prepared datasets into one decision-dataset contract.
-- Training supported candidate models.
-- Generating validation predictions under one artifact contract.
-- Comparing policies under the same conditions.
-- Checking stability with paired bootstrap.
-- Selecting a champion on validation data.
-- Locking the exact selected model instance.
-- Evaluating the champion separately on test data.
-- Preserving enough provenance to trace results back to the correct experiment and model run.
+- standardizing prepared datasets into one decision-dataset contract;
+- training supported candidate models;
+- generating aligned validation predictions;
+- evaluating policies under the same conditions;
+- selecting the best uplift candidate on validation;
+- checking whether that uplift candidate can reliably replace the Response baseline;
+- preserving experiment and model provenance;
+- evaluating the frozen uplift champion and Response baseline on locked test data.
 
-The framework focuses on the **downstream modeling workflow**. It does not replace the data-science work required before modeling.
+The framework starts **after dataset-specific Data Science preparation has been completed**.
 
 ---
 
 ## 2. Framework Boundary
 
-The framework starts from a **prepared dataset**.
-
 ### Outside the framework
 
-The following steps are dataset-specific:
+The following work is dataset-specific and must be completed before the dataset enters the framework:
 
 ```text
 raw data loading
 data cleaning
-EDA
+EDA / hypothesis checking
 feature engineering
-encoding decisions
+categorical encoding
 treatment/control definition
 outcome definition
 leakage decisions
 ```
-
-These decisions depend on business context and the source dataset, so they are not part of the framework core.
 
 ### Inside the framework
 
 ```text
 prepared dataset
         ↓
-standardization
+validate dataset contract
         ↓
-internal row_id
+standardize to outcome-specific decision dataset
         ↓
-deterministic split
+add / preserve row_id
         ↓
-candidate training
+create / validate train-validation-test split
         ↓
-validation predictions + provenance
+train Response + uplift candidates
+        ↓
+validation predictions + model provenance
         ↓
 experiment manifest
         ↓
 validation evaluation
         ↓
-paired bootstrap
+Top-K uplift champion selection
         ↓
-selection gate
+paired-bootstrap replacement gate vs Response baseline
         ↓
-champion artifact
+selection artifact
         ↓
-locked-test evaluation
+locked-test evaluation of uplift champion + Response baseline
 ```
 
-The framework is dataset-generic: any dataset can be used if it can be mapped to the required contract.
-
-The framework does not try to support every possible baseline, budget, or model family. These parts have a defined supported scope and can be extended in code when needed.
+The framework is dataset-generic. A new dataset does not need a new training or evaluation pipeline as long as its prepared data can be described by the dataset contract.
 
 ---
 
-## 3. Prepared Dataset Contract
+## 3. Input Dataset
 
-A prepared dataset must provide:
+To use a new dataset, the user provides:
+
+```text
+1. one prepared Parquet file
+2. one dataset YAML config
+```
+
+The prepared table must already be modeling-ready.
+
+At minimum it contains:
 
 ```text
 feature columns
 treatment column
-outcome column or outcome columns
+outcome column(s)
 ```
 
-The dataset configuration describes:
+Example:
 
-```text
-dataset name
-prepared dataset path
-feature columns
-treatment column
-outcome columns
-split settings
-standardized output path
+| age | tenure | past_purchase_count | treatment | conversion |
+|---:|---:|---:|---:|---:|
+| 32 | 12 | 5 | 1 | 1 |
+| 45 | 30 | 10 | 0 | 0 |
+| 27 | 4 | 2 | 1 | 0 |
+
+Here:
+
+- `age`, `tenure`, `past_purchase_count` are features;
+- `treatment = 1` is treatment and `treatment = 0` is control;
+- `conversion` is the observed outcome.
+
+The user is responsible for deciding which columns are valid pre-treatment features and for removing leakage before creating this file.
+
+### Dataset config
+
+The YAML config tells the framework how to interpret the prepared file.
+
+```yaml
+dataset:
+  name: my_campaign
+  prepared_path: data/interim/my_campaign/prepared.parquet
+
+schema:
+  treatment_column: treatment
+  split_column: split
+
+  feature_columns:
+    - age
+    - tenure
+    - past_purchase_count
+
+  outcome_columns:
+    - conversion
+
+split:
+  assign_if_missing: true
+  train_size: 0.6
+  validation_size: 0.2
+  test_size: 0.2
+  random_state: 42
+
+outputs:
+  processed_paths:
+    conversion: data/processed/my_campaign/decision_conversion.parquet
 ```
 
-The framework does not decide:
-
-- which features should be used;
-- what treatment means;
-- which outcome is appropriate;
-- which features contain leakage;
-- which business transformations should be applied.
-
-Those decisions must be completed before the dataset enters the framework.
+`row_id` and `split` do not need to exist in the prepared dataset when the framework is configured to create them.
 
 ---
 
-## 4. Dataset Example
+## 4. Dataset Examples
 
-Example prepared dataset:
+### Criteo
 
-```text
-age
-tenure
-past_purchase_count
-average_order_value
-treatment
-conversion
-```
-
-Example Criteo dataset:
+The prepared Criteo table contains:
 
 ```text
-f0
-f1
-...
-f11
+f0 ... f11
 treatment
 visit
 conversion
 ```
 
-One experiment selects one outcome to create a decision dataset.
+The framework creates separate decision datasets for the configured outcomes.
 
-For example, with `visit`:
+For `visit`:
 
 ```text
 row_id
-f0
-f1
-...
-f11
+f0 ... f11
 treatment
-visit -> outcome
+visit
 split
 ```
 
-The same prepared dataset can also be standardized for `conversion` as the selected outcome.
+For `conversion`:
+
+```text
+row_id
+f0 ... f11
+treatment
+conversion
+split
+```
+
+`exposure` is excluded during external data preparation because it is a post-treatment variable.
+
+### Hillstrom
+
+The original Hillstrom experiment contains:
+
+```text
+No E-Mail
+Mens E-Mail
+Womens E-Mail
+```
+
+Binary treatment definition is handled outside the framework by creating two prepared experiments:
+
+```text
+hillstrom_mens
+No E-Mail   = 0
+Mens E-Mail = 1
+```
+
+```text
+hillstrom_womens
+No E-Mail     = 0
+Womens E-Mail = 1
+```
+
+After categorical encoding and feature preparation, both datasets enter the same framework contract:
+
+```text
+customer features
+treatment
+visit
+conversion
+```
+
+No Hillstrom-specific training or evaluation pipeline is required.
 
 ---
 
 ## 5. Standardization
 
-Standardization is the first step inside the framework.
+Standardization is the first modeling step inside the framework.
 
-It is responsible for:
+It:
 
-1. Loading the prepared dataset.
-2. Validating columns declared in the dataset config.
-3. Selecting the outcome for the experiment.
-4. Creating an internal `row_id`.
-5. Creating train/validation/test splits.
-6. Writing the standardized decision dataset.
+1. loads the prepared Parquet;
+2. validates the columns declared in the dataset config;
+3. keeps only the configured features, treatment, and outcome;
+4. adds or preserves the configured `row_id`;
+5. creates or validates the split;
+6. writes an outcome-specific decision dataset.
 
-Output contract:
+Decision-dataset contract:
 
 ```text
 row_id
@@ -184,67 +247,56 @@ split
 
 ### `row_id`
 
-`row_id` is an internal technical identifier created by the framework.
+`row_id` is used for technical alignment, not as a model feature.
 
-It keeps the same observation consistently identifiable across:
-
-```text
-dataset
-model predictions
-evaluation
-bootstrap
-manifest
-locked test
-```
-
-The framework does not depend on a source customer ID for alignment.
-
-After creation, `row_id` must be:
+It must remain:
 
 - non-null;
-- unique;
-- unchanged throughout the downstream workflow.
+- unique inside the decision dataset;
+- unchanged across prediction and evaluation artifacts.
+
+All model comparisons are aligned by `row_id`, not by row order.
 
 ---
 
 ## 6. Split
 
-The framework creates splits because train/validation/test separation is part of modeling and evaluation infrastructure.
-
 Default split:
 
 ```text
-train      60%
-validation 20%
-test       20%
+train       60%
+validation  20%
+test        20%
 ```
 
-Split creation must:
+When the framework creates the split, it is deterministic and uses the configured random seed.
 
-- be deterministic;
-- use the configured random seed;
-- create disjoint train, validation, and test groups;
-- keep test independent from candidate selection.
+For each outcome, stratification uses:
 
-When stratification is used, the framework stratifies by treatment and the selected outcome to preserve the main group distribution across splits.
+```text
+(treatment, outcome)
+```
 
-### Split usage
+to keep treatment/control and outcome distributions reasonably stable.
+
+Split roles:
 
 ```text
 train
 → model fitting
 
 validation
-→ validation prediction
-→ evaluation
-→ paired bootstrap
-→ champion selection
+→ early stopping
+→ prediction
+→ policy evaluation
+→ uplift champion selection
+→ paired-bootstrap replacement gate
 
 test
-→ used only after champion lock
+→ used only after validation decisions are frozen
 ```
 
-Test data must not influence champion selection.
+The test split must not influence uplift selection or the replacement gate.
 
 ---
 
@@ -256,102 +308,69 @@ Main entry point:
 src/uplift_modeling/pipelines/run_experiment.py
 ```
 
-Workflow:
+Conceptual flow:
 
 ```text
-Load dataset config
+load dataset config
         ↓
-Load modeling config
+load modeling config
         ↓
-Standardize prepared dataset
+standardize prepared dataset
         ↓
-Resolve configured candidates
+resolve configured candidates
         ↓
-Train each candidate
+train each candidate
         ↓
-Collect exact validation prediction paths
+collect validation prediction artifacts
         ↓
-Create experiment manifest
+create experiment manifest
         ↓
-Validation evaluation
+validation evaluation
         ↓
-Paired bootstrap
+Top-K uplift champion selection
         ↓
-Selection Gate
+paired bootstrap
         ↓
-Champion-selection artifact
+replacement gate vs Response baseline
+        ↓
+selection artifact
 ```
 
-`run_experiment` stops after champion selection.
+`run_experiment` stops after the validation decision has been saved.
 
-Locked-test evaluation is not run automatically so final test evaluation remains separate from model selection.
+Locked-test evaluation is run separately.
 
 ---
 
-## 8. Candidate Configuration and Dispatch
+## 8. Candidate Configuration and Supported Models
 
-The modeling config uses a candidate list.
-
-Each candidate defines:
+The modeling config defines candidate models through:
 
 ```text
 name
 kind
-model parameters / overrides
+parameter overrides
 ```
 
-The experiment runner resolves each `ModelCandidateConfig` and passes that candidate to the matching training function.
+Current supported policies:
 
-Conceptual dispatch:
+| Policy | Role |
+|---|---|
+| `treated_response_lgbm` | Response baseline |
+| `t_learner_lgbm` | Uplift candidate |
+| `x_learner_lgbm` | Uplift candidate |
 
-```text
-for candidate in candidates:
+The experiment runner resolves each configured candidate and dispatches it to the correct training implementation.
 
-    treated_response
-        → train response candidate
+Unsupported model kinds must fail explicitly.
 
-    t_learner
-        → train T-Learner candidate
-
-    x_learner
-        → train X-Learner candidate
-```
-
-A training pipeline should not search again for “the only candidate of this model kind.”
-
-The runner should know exactly which candidate is being trained and pass it directly to the corresponding training function.
-
-Unsupported model kinds must fail explicitly instead of silently falling back.
+`treated_response_lgbm` is the baseline and does **not** participate in uplift-champion selection.
 
 ---
 
-## 9. Supported Models
+## 9. Validation Prediction Contract
 
-The framework currently supports:
-
-```text
-treated_response_lgbm
-t_learner_lgbm
-x_learner_lgbm
-```
-
-The models share:
-
-- the standardized dataset contract;
-- train/validation/test splits;
-- experiment-level settings where appropriate;
-- the validation prediction contract;
-- the evaluation workflow.
-
-Algorithm-specific behavior remains inside each model implementation.
-
-Additional model families can be added later through explicit implementation and candidate dispatch.
-
----
-
-## 10. Validation Prediction Contract
-
-Each deployable candidate creates one validation prediction artifact:
+Each trained candidate produces one validation prediction artifact:
 
 ```text
 row_id
@@ -362,88 +381,69 @@ score
 model_name
 ```
 
-Invariants:
+Required invariants:
 
-- only validation rows are included;
-- each `row_id` appears once;
-- all candidates contain the same validation observations;
-- treatment and outcome values match by `row_id`;
-- row order is not used to align predictions;
-- `model_name` matches the candidate/policy.
+- prediction artifacts contain validation rows only;
+- each `row_id` appears once per policy;
+- all policies cover the same validation observations;
+- treatment, outcome, and split match for the same `row_id`;
+- row order is not used for alignment;
+- `model_name` matches the policy.
 
-Each prediction artifact also has model provenance so the model that produced it can be traced.
-
-Provenance may include:
-
-```text
-dataset
-outcome
-policy
-prediction path
-MLflow run ID
-model URI / component URIs
-reload information
-```
+Each prediction artifact is linked to model provenance so the exact trained model can be traced and reloaded later.
 
 ---
 
-## 11. Experiment Manifest
+## 10. Experiment Manifest
 
-The experiment manifest stores the exact mapping between one experiment and the candidate artifacts used in that comparison.
+The experiment manifest freezes the exact candidate artifacts used in one validation experiment.
 
-It must identify:
+It identifies:
 
 ```text
 experiment_id
 dataset_name
 outcome
+dataset config
+modeling config
 prediction artifact by policy
 model provenance by policy
 ```
 
-Invariants:
+The manifest must not discover artifacts by scanning for the newest file.
 
-- prediction paths come directly from training outputs;
-- the manifest does not scan folders to guess which file to use;
-- artifacts are not selected by recency;
-- prediction artifacts must exist and satisfy the contract;
-- prediction artifacts must contain validation rows only;
-- policy names must match model provenance;
-- an existing manifest must not be silently overwritten.
+Its purpose is to make sure that:
 
-The purpose is to prevent a case where validation evaluates predictions from one model while locked test reloads a different model.
+```text
+model evaluated on validation
+        ==
+model referenced by downstream selection / locked test
+```
 
 ---
 
-## 12. Validation Evaluation
+## 11. Validation Evaluation
 
-The validation evaluator:
+Validation evaluation loads the candidates from the manifest and compares them on the same rows.
 
-1. Loads candidate prediction artifacts from the manifest.
-2. Aligns observations by `row_id`.
-3. Applies the same evaluation settings to every policy.
-4. Evaluates ranking under the supported top-k budgets.
-5. Generates the required evaluation artifacts.
-6. Produces the data needed for paired bootstrap.
-
-Possible outputs include:
+Main outputs include:
 
 ```text
 Top-K policy value
-Incremental outcome
+incremental outcome
 Qini
 AUUC
 Qini curve
-Uplift curve
+uplift curve
 ```
 
-Classification metrics, when calculated, are used for diagnostics or reporting and do not replace the uplift-policy selection rule.
+Classification metrics may be used as diagnostics, but they do not decide which uplift policy should replace the Response baseline.
 
 ---
 
-## 13. Evaluation Budgets
+## 12. Top-K Budgets
 
-Default supported top-k budgets:
+Default evaluated budgets are:
 
 ```text
 1%
@@ -453,132 +453,143 @@ Default supported top-k budgets:
 30%
 ```
 
-The framework does not automatically support arbitrary budgets outside the configured list.
+One configured **primary budget** is used for the validation decision.
 
-If a new budget is required, evaluation, bootstrap, and selection settings must be updated consistently.
+For example, different experiments may use different primary budgets while still reporting the same default Top-K range.
+
+The primary metric is currently `policy_value`.
 
 ---
 
-## 14. Evaluation Benchmark
+## 13. Evaluation Benchmark
 
 `random_targeting` is generated internally as a benchmark.
 
-It:
+It may appear in evaluation output, but it:
 
-- may appear in evaluation output;
-- may appear in bootstrap reporting;
 - is not a trained model;
-- does not have deployable model provenance;
-- cannot become champion.
-
-A benchmark and a deployable candidate are different concepts.
+- has no deployable model provenance;
+- does not participate in uplift selection;
+- cannot become the recommended deployment policy.
 
 ---
 
-## 15. Paired Bootstrap
+## 14. Uplift Champion Selection
 
-Paired bootstrap uses validation data only.
+Uplift selection uses validation Top-K results at the configured primary operating point.
+
+Only uplift candidates participate.
+
+Current rule:
+
+1. keep the configured uplift candidates;
+2. read their primary validation Top-K metric;
+3. select the candidate with the largest metric value;
+4. break an exact tie deterministically by policy name;
+5. save the result as `uplift_champion_policy`.
+
+Conceptually:
+
+```text
+T-Learner ─┐
+           ├─ compare primary Top-K metric ─→ uplift champion
+X-Learner ─┘
+```
+
+The Response baseline is excluded from this step.
+
+---
+
+## 15. Paired Bootstrap and Replacement Gate
+
+After the uplift champion has been fixed, paired bootstrap is used to compare that uplift champion with the Response baseline.
 
 For each bootstrap iteration:
 
-1. Sample validation row positions with replacement.
-2. Apply the same sampled positions to every policy.
-3. Calculate the policy metric on the same bootstrap sample.
-4. Calculate the delta between each candidate and the baseline.
+1. sample validation row positions with replacement;
+2. apply the same sampled positions to every compared policy;
+3. calculate the configured policy metric;
+4. calculate the uplift-champion-minus-baseline delta.
 
-Using the same sample for every policy makes the comparison paired rather than independent.
-
-Persisted summaries may include:
+The replacement rule is:
 
 ```text
-policy
-baseline_policy
-budget_fraction
-metric
-mean_delta
-ci_lower
-ci_upper
-standard deviation
-number of resamples
-random seed
+ci_lower > 0
+→ replacement_gate_passed = true
+
+ci_lower <= 0
+→ replacement_gate_passed = false
 ```
 
-Locked-test data is not used by bootstrap to select the champion.
-
----
-
-## 16. Baseline Policy
-
-The default workflow currently uses one baseline:
+The framework therefore keeps three separate decisions:
 
 ```text
-treated_response_lgbm
+uplift_champion_policy
+replacement_gate_passed
+recommended_deployment_policy
 ```
 
-Bootstrap contrasts and the Selection Gate use this baseline.
+Recommendation rule:
 
-The framework does not try to support arbitrary baselines in the default implementation.
+```text
+if replacement_gate_passed:
+    recommended_deployment_policy = uplift_champion_policy
+else:
+    recommended_deployment_policy = treated_response_lgbm
+```
 
-If another baseline is required, bootstrap, selection, and model-eligibility logic must be extended together rather than changing only one config field.
-
----
-
-## 17. Selection Gate
-
-The Selection Gate consumes validation paired-bootstrap results only.
-
-It does not:
-
-- train models;
-- generate predictions;
-- calculate bootstrap samples;
-- read the test split;
-- run locked-test evaluation.
-
-Current selection rule:
-
-1. Compare deployable candidates with `treated_response_lgbm`.
-2. A candidate passes when `ci_lower > 0`.
-3. If multiple candidates pass, select the one with the largest `mean_delta`.
-4. If no candidate passes, keep the baseline.
-5. Exact ties may be broken deterministically by policy name.
-
-The Selection Gate output must preserve enough evidence to explain why the champion was selected.
+This means an uplift model can be the best uplift candidate without being good enough to replace the Response baseline.
 
 ---
 
-## 18. Champion Lock
+## 16. Selection Artifact
 
-The champion artifact must identify **one exact trained model instance**, not only a model name.
+The Selection Gate artifact records the frozen validation decision.
 
-Champion identity should be traceable through:
+Important fields include:
 
 ```text
 experiment_id
 dataset_name
-outcome
-champion_policy
-MLflow run ID
-model URI / component URIs
-source prediction artifact
-source model provenance
+uplift_champion_policy
+baseline_policy
+uplift_selection_method
+uplift candidate Top-K rows
+replacement_gate_method
+replacement_gate_passed
+baseline contrast row
+recommended_deployment_policy
+uplift champion model provenance
+selection settings
 source manifest
-selection evidence
+bootstrap artifact
 ```
 
-Core invariant:
-
-```text
-model evaluated on validation
-        ==
-model reloaded for locked test
-```
-
-Policy name alone is not enough because multiple training runs can use the same policy name.
+This artifact is the boundary between validation model selection and final locked-test reporting.
 
 ---
 
-## 19. Locked-Test Evaluation
+## 17. Model Provenance and Lock
+
+The selected uplift champion must identify one exact trained model instance, not only a policy name.
+
+Relevant identity includes:
+
+```text
+dataset
+outcome
+policy
+MLflow run ID
+model URI / component URIs
+source prediction artifact
+source experiment manifest
+```
+
+This prevents a later run with the same policy name from silently replacing the model that was evaluated during validation.
+
+---
+
+## 18. Locked-Test Evaluation
 
 Locked-test entry point:
 
@@ -586,93 +597,89 @@ Locked-test entry point:
 src/uplift_modeling/pipelines/evaluate_locked_test.py
 ```
 
-The locked-test pipeline:
+Locked test evaluates the two policies frozen by validation:
 
-1. Loads the champion-selection artifact.
-2. Validates the champion against the experiment manifest.
-3. Reloads the exact selected model from the recorded MLflow run/model URI.
-4. Loads the standardized decision dataset.
-5. Selects `split == test`.
-6. Scores the champion only.
-7. Writes a champion-only test prediction artifact.
-8. Calculates final test metrics.
+```text
+uplift_champion_policy
++
+treated_response_lgbm baseline
+```
 
-Locked test does not:
+The pipeline:
 
-- rerun the Selection Gate;
-- compare candidates again to replace the champion;
-- use test results as model-selection input.
+1. loads the Selection Gate artifact;
+2. validates it against the experiment manifest;
+3. reloads the required model artifacts;
+4. reads only `split == test`;
+5. scores the uplift champion and Response baseline;
+6. aligns both policies by `row_id`;
+7. reports test Top-K and uplift metrics;
+8. reports bootstrap uncertainty and paired contrast on test;
+9. saves the locked-test evaluation artifact.
 
-Locked test is the final evaluation and reporting stage.
+Locked test does **not**:
+
+- select a new uplift champion;
+- rerun the replacement gate as a deployment decision;
+- replace `recommended_deployment_policy`;
+- feed test results back into validation selection.
+
+Its role is final confirmation and reporting on unseen data.
 
 ---
 
-## 20. Reuse with Another Dataset
+## 19. Reuse with Another Dataset
 
-A new dataset may have a completely different:
+A new dataset may have a completely different raw schema and preparation process.
 
-```text
-raw source
-schema
-cleaning process
-EDA
-feature engineering
-treatment definition
-outcome definition
-prepared-data format
-```
-
-As long as the prepared dataset can be described by the dataset config and mapped to:
+The reusable boundary is:
 
 ```text
-features
-treatment
-outcome
+dataset-specific work
+raw → EDA → features → treatment/outcome → prepared Parquet
+
+                         ↓
+
+shared framework
+prepared Parquet
+→ standardization
+→ row_id / split
+→ candidate training
+→ prediction contract
+→ manifest
+→ validation evaluation
+→ uplift selection
+→ replacement gate
+→ locked test
 ```
 
-the downstream workflow can reuse:
-
-```text
-standardization
-row_id
-split
-training interface
-prediction contract
-manifest
-evaluation
-paired bootstrap
-selection
-champion lock
-locked test
-```
-
-If a new dataset requires a copied evaluation or selection pipeline only because its source schema is different, the framework boundary is not generic enough.
+If a new dataset requires copied training, evaluation, or selection code only because its source columns are different, the framework boundary is not generic enough.
 
 ---
 
-## 21. Supported Scope
+## 20. Supported Scope
 
-The framework intentionally keeps a defined scope.
-
-It does not automatically provide:
+The framework intentionally does not own:
 
 - raw data processing;
 - EDA;
 - feature engineering;
-- leakage detection;
+- encoding decisions;
+- automatic leakage detection;
 - treatment/outcome construction;
-- every possible model family;
-- every possible baseline policy;
-- every possible top-k budget;
-- automatic hyperparameter search.
+- multi-treatment modeling;
+- arbitrary model families;
+- arbitrary baseline policies;
+- automatic hyperparameter search;
+- production deployment or automatic retraining.
 
-These areas can be extended, but they are not part of the default framework behavior.
+These can be extended later, but they are outside the current framework scope.
 
 ---
 
-## 22. Artifact Hygiene
+## 21. Artifact Hygiene
 
-Generated runtime artifacts should not be committed with the source code:
+Generated runtime artifacts should not be committed with source code:
 
 ```text
 artifacts/predictions/
@@ -683,4 +690,4 @@ cache/
 temporary files
 ```
 
-If example artifacts are needed for testing or documentation, they should be stored in a dedicated fixture/example location instead of active output directories.
+If example artifacts are needed for documentation or tests, they should live in dedicated fixture/example locations instead of active runtime output folders.

@@ -14,6 +14,7 @@ DATASET_NAME = "synthetic"
 OUTCOME = "visit"
 EXPERIMENT_ID = "exp-001"
 CHAMPION_POLICY = "t_learner_lgbm"
+BASELINE_POLICY = "treated_response_lgbm"
 
 
 def _write_decision_dataset(tmp_path: Path) -> Path:
@@ -135,7 +136,7 @@ def _write_manifest(
     include_champion_prediction: bool = True,
 ) -> Path:
     validation_dir = tmp_path / "validation_predictions"
-    policies = ("treated_response_lgbm", CHAMPION_POLICY)
+    policies = (BASELINE_POLICY, CHAMPION_POLICY)
     prediction_artifacts = {}
     model_artifacts = {}
 
@@ -184,8 +185,9 @@ def _write_selection(
                 "source_manifest_path": str(
                     (source_manifest_path or manifest_path).resolve()
                 ),
-                "champion_policy": CHAMPION_POLICY,
-                "champion_model_artifact": (
+                "uplift_champion_policy": CHAMPION_POLICY,
+                "baseline_policy": BASELINE_POLICY,
+                "uplift_champion_model_artifact": (
                     champion_artifact or _model_artifact(CHAMPION_POLICY)
                 ),
                 "selection_settings": {
@@ -193,7 +195,7 @@ def _write_selection(
                     "split": "validation",
                     "budget_fraction": 0.1,
                     "metric": "policy_value",
-                    "baseline_policy": "treated_response_lgbm",
+                    "baseline_policy": BASELINE_POLICY,
                 },
             }
         ),
@@ -239,7 +241,7 @@ def _patch_runtime(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     return loaded
 
 
-def test_locked_test_scores_only_exact_champion_on_test_rows(
+def test_locked_test_scores_champion_and_baseline_on_test_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -254,13 +256,17 @@ def test_locked_test_scores_only_exact_champion_on_test_rows(
     )
 
     assert output_path.exists()
-    assert loaded == [(CHAMPION_POLICY, f"run-{CHAMPION_POLICY}")]
+    assert loaded == [
+        (CHAMPION_POLICY, f"run-{CHAMPION_POLICY}"),
+        (BASELINE_POLICY, f"run-{BASELINE_POLICY}"),
+    ]
 
     prediction_paths = list((tmp_path / "predictions").glob("*.parquet"))
-    assert len(prediction_paths) == 1
-    frame = pd.read_parquet(prediction_paths[0])
-    assert frame["row_id"].tolist() == list(range(4, 24))
-    assert set(frame["split"]) == {"test"}
+    assert len(prediction_paths) == 2
+    for prediction_path in prediction_paths:
+        frame = pd.read_parquet(prediction_path)
+        assert frame["row_id"].tolist() == list(range(4, 24))
+        assert set(frame["split"]) == {"test"}
 
 
 def test_locked_test_source_frame_does_not_resplit(tmp_path: Path) -> None:

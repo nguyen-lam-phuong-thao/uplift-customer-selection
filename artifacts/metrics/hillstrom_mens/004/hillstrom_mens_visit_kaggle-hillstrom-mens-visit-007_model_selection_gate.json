@@ -1,0 +1,56 @@
+{
+  "artifact_type": "model_selection_gate",
+  "baseline_contrast_row": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.2,
+    "ci_lower": -0.00820671079339653,
+    "ci_upper": 0.005315007947192923,
+    "mean_delta": -0.0009292251179688612,
+    "metric": "policy_value",
+    "n_bootstrap": 100,
+    "n_valid_bootstrap": 100,
+    "outcome": "visit",
+    "policy": "x_learner_lgbm",
+    "replacement_gate_passed": false,
+    "split": "validation"
+  },
+  "baseline_policy": "treated_response_lgbm",
+  "bootstrap_artifact": "hillstrom_mens_visit_bootstrap_paired_contrasts_run01.json",
+  "dataset_name": "hillstrom_mens",
+  "experiment_id": "kaggle-hillstrom-mens-visit-007",
+  "recommended_deployment_policy": "treated_response_lgbm",
+  "replacement_gate_method": "bootstrap_paired_contrast_ci_lower_positive",
+  "replacement_gate_passed": false,
+  "selection_settings": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.2,
+    "metric": "policy_value",
+    "outcome": "visit",
+    "split": "validation"
+  },
+  "source_manifest_path": "/kaggle/working/uplift-customer-selection/artifacts/metrics/hillstrom_mens_visit_kaggle-hillstrom-mens-visit-007_experiment_manifest.json",
+  "uplift_candidate_rows": [
+    {
+      "metric_value": 0.12014939994103649,
+      "policy": "t_learner_lgbm"
+    },
+    {
+      "metric_value": 0.12343440793260849,
+      "policy": "x_learner_lgbm"
+    }
+  ],
+  "uplift_champion_model_artifact": {
+    "artifact_type": "model_provenance",
+    "constant_treatment_rate_weight": 0.5000195564594986,
+    "control_effect_model_uri": "models:/m-3591ea3425ed44e1ac58506cd301c157",
+    "dataset_name": "hillstrom_mens",
+    "mlflow_run_id": "790f0199a54740bfbd8f4f6921c607b6",
+    "model_kind": "x_learner",
+    "outcome": "visit",
+    "policy_name": "x_learner_lgbm",
+    "prediction_artifact": "hillstrom_mens_visit_x_learner_lgbm_run01_predictions.parquet",
+    "treatment_effect_model_uri": "models:/m-1527a94215a94dffa74c41875ae12404"
+  },
+  "uplift_champion_policy": "x_learner_lgbm",
+  "uplift_selection_method": "primary_topk_metric_largest_value"
+}

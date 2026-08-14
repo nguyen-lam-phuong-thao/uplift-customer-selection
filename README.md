@@ -27,24 +27,6 @@ In a business setting, the framework can be used as a reference workflow when a 
 
 Instead of only predicting who is likely to produce an outcome, uplift modeling focuses on identifying customers whose behavior is more likely to change **because of the treatment**.
 
-The framework standardizes the workflow from a prepared dataset to model selection:
-
-```text
-Prepared dataset
-        ↓
-Standardize dataset
-        ↓
-Train Response + uplift candidates
-        ↓
-Validation evaluation
-        ↓
-Select uplift champion
-        ↓
-Replacement gate vs Response baseline
-        ↓
-Locked-test evaluation
-```
-
 The framework can be reused across datasets, but each dataset still requires its own preparation before entering the framework.
 
 ---
@@ -93,7 +75,7 @@ Prepared dataset
         ↓
 Standardize to a common decision dataset
         ↓
-Add internal `row_id`
+Add internal row_id
         ↓
 Create train / validation / test split
         ↓
@@ -110,32 +92,81 @@ Locked-test evaluation of uplift champion + baseline
 
 `row_id` is an internal technical identifier created by the framework to keep predictions and evaluation rows aligned across models.
 
-Splits are created deterministically. Validation is used for uplift selection and the replacement gate, test is used only after those validation decisions have been frozen.
+Splits are created deterministically. Validation is used for uplift selection and the replacement gate; test is used only after those validation decisions have been frozen.
 
 ---
 
 ## Input Dataset
 
-A prepared dataset should contain:
+To use the framework with a new dataset, the user needs to provide:
 
-| Required component | Description |
-|---|---|
-| Feature columns | Input features used by the uplift models. |
-| Treatment column | Indicates treatment/control assignment. |
-| Outcome column(s) | Outcome or outcomes used for the experiment. |
+1. A **prepared Parquet dataset**.
+2. A **dataset config** describing which columns are features, treatment, and outcomes.
 
-A simple example:
+The prepared dataset should already be modeling-ready:
 
 ```text
-age
-tenure
-past_purchase_count
-average_order_value
+feature columns
 treatment
-conversion
+outcome column(s)
 ```
 
-For the Criteo dataset used in this project:
+For example:
+
+| age | tenure | past_purchase_count | treatment | conversion |
+|---:|---:|---:|---:|---:|
+| 32 | 12 | 5 | 1 | 1 |
+| 45 | 30 | 10 | 0 | 0 |
+| 27 | 4 | 2 | 1 | 0 |
+
+Here:
+
+- `age`, `tenure`, `past_purchase_count` are model features.
+- `treatment = 1` means treated and `treatment = 0` means control.
+- `conversion` is the observed outcome.
+
+The framework does not perform feature engineering or decide which columns are safe to use. Those decisions must already be completed when the prepared dataset is created.
+
+### Dataset config
+
+The dataset config tells the framework how to interpret the prepared file.
+
+Example:
+
+```yaml
+dataset:
+  name: my_campaign
+  prepared_path: data/interim/my_campaign/prepared.parquet
+
+schema:
+  treatment_column: treatment
+  split_column: split
+
+  feature_columns:
+    - age
+    - tenure
+    - past_purchase_count
+
+  outcome_columns:
+    - conversion
+
+split:
+  assign_if_missing: true
+  train_size: 0.6
+  validation_size: 0.2
+  test_size: 0.2
+  random_state: 42
+
+outputs:
+  processed_paths:
+    conversion: data/processed/my_campaign/decision_conversion.parquet
+```
+
+The input dataset does not need to contain `row_id` or `split` when the framework is configured to create them.
+
+### Example: Criteo
+
+The prepared Criteo dataset contains:
 
 ```text
 f0
@@ -147,17 +178,94 @@ visit
 conversion
 ```
 
-After standardization, one decision dataset for a selected outcome follows this structure:
+From this single prepared dataset, the framework creates one decision dataset for each outcome:
 
 ```text
+visit:
 row_id
-feature columns
+f0 ... f11
 treatment
-outcome
+visit
 split
 ```
 
-The input dataset does not need to provide `row_id`; the framework creates it for internal alignment.
+```text
+conversion:
+row_id
+f0 ... f11
+treatment
+conversion
+split
+```
+
+### Example: Hillstrom
+
+Hillstrom originally contains three campaign groups:
+
+```text
+No E-Mail
+Mens E-Mail
+Womens E-Mail
+```
+
+Because the framework uses binary treatment, preparation creates two separate experiments:
+
+```text
+hillstrom_mens:
+No E-Mail   = 0
+Mens E-Mail = 1
+```
+
+```text
+hillstrom_womens:
+No E-Mail     = 0
+Womens E-Mail = 1
+```
+
+Categorical variables are encoded before entering the framework.
+
+A prepared Hillstrom dataset therefore has the same logical structure as Criteo:
+
+```text
+customer features
+treatment
+visit
+conversion
+```
+
+The framework then standardizes it into separate `visit` and `conversion` decision datasets.
+
+In short:
+
+```text
+User prepares:
+
+features + treatment + outcome(s)
+            ↓
+        dataset config
+            ↓
+Framework creates:
+
+row_id + features + treatment + one outcome + split
+```
+
+---
+
+## Current Supported Models
+
+The framework currently supports:
+
+| Model | Role |
+|---|---|
+| `treated_response_lgbm` | Traditional Response baseline |
+| `t_learner_lgbm` | Uplift candidate |
+| `x_learner_lgbm` | Uplift candidate |
+
+`treated_response_lgbm` ranks customers by predicted outcome response and is used as the baseline for the replacement gate.
+
+`T-Learner` and `X-Learner` estimate treatment effect and participate in uplift-champion selection.
+
+`random_targeting` is used only as an evaluation benchmark and cannot become champion.
 
 ---
 
@@ -180,12 +288,12 @@ Only uplift models participate in uplift-champion selection.
 
 ### Replacement gate
 
-After the uplift champion is fixed, compare it with `treated_response_lgbm` using the existing paired bootstrap contrast at the same primary operating point.
+After the uplift champion is fixed, compare it with `treated_response_lgbm` using the paired bootstrap contrast at the same primary operating point.
 
 | Result | Meaning |
 |---|---|
 | `ci_lower > 0` | `replacement_gate_passed = true`: there is stable evidence that the uplift champion outperforms the Response baseline. |
-| `ci_lower <= 0` | `replacement_gate_passed = false`: the uplift champion remains unchanged, but the Response baseline remains the recommended deployment policy. |
+| `ci_lower <= 0` | `replacement_gate_passed = false`: the Response baseline remains the recommended deployment policy. |
 
 The framework keeps three separate concepts:
 
@@ -193,7 +301,7 @@ The framework keeps three separate concepts:
 - `replacement_gate_passed`: whether the uplift champion has enough evidence to replace the Response baseline.
 - `recommended_deployment_policy`: the uplift champion when the gate passes, otherwise the Response baseline.
 
-### Default top-k budgets
+### Default Top-K budgets
 
 | Budget |
 |---:|
@@ -212,24 +320,36 @@ The framework keeps three separate concepts:
 Run the full validation experiment with:
 
 ```bash
-python -m uplift_modeling.pipelines.run_experiment   --dataset-config <dataset-config>   --modeling-config <modeling-config>   --experiment-id <experiment-id>   --outcome <outcome>
+python -m uplift_modeling.pipelines.run_experiment \
+  --dataset-config <dataset-config> \
+  --modeling-config <modeling-config> \
+  --experiment-id <experiment-id> \
+  --outcome <outcome>
 ```
 
-The runner standardizes the prepared dataset, trains the configured models, creates validation predictions, evaluates them, selects the uplift champion from validation Top-K performance, and runs the paired-bootstrap replacement gate against the Response baseline.
+Example:
 
-Locked-test evaluation is run separately after validation decisions are frozen. It scores both the selected uplift champion and `treated_response_lgbm`, reports their test performance and paired contrast, and does not re-select a model.
+```bash
+python -m uplift_modeling.pipelines.run_experiment \
+  --dataset-config configs/datasets/criteo.yaml \
+  --modeling-config configs/modeling/uplift_lgbm.yaml \
+  --experiment-id criteo-visit-001 \
+  --outcome visit
+```
+
+Locked-test evaluation is run separately after validation decisions are frozen.
 
 ---
 
 ## Kaggle Training Notebook
 
-A Uplift-training notebook is available here:
+Uplift-training notebooks are available here:
 
 [**Criteo uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training)
 
-[**Hillstrom_womens Uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-womens-uplift-training)
+[**Hillstrom Womens uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-womens-uplift-training)
 
-[**Hillstrom_mens Uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-men-uplift-training)
+[**Hillstrom Mens uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-men-uplift-training)
 
 ---
 
@@ -264,5 +384,5 @@ For the full workflow, dataset contracts, prediction artifacts, bootstrap, Selec
 | Document | Description |
 |---|---|
 | [`docs/framework_workflow.md`](docs/framework_workflow.md) | Full workflow, dataset contracts, prediction artifacts, bootstrap, Selection Gate, and locked-test rules. |
-
-
+| [`docs/week_3/criteo_train_result.md`](docs/week_3/criteo_train_result.md) | Criteo experiment results, model evaluation, comparison, and findings. |
+| [`docs/week_4/hillstrom_train_result.md`](docs/week_4/hillstrom_train_result.md) | Hillstrom experiment results, model evaluation, comparison, and treatment-effect analysis. |

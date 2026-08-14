@@ -1,0 +1,13 @@
+{
+  "dataset_name": "hillstrom_mens",
+  "model_name": "treated_response_lgbm",
+  "outcome": "conversion",
+  "target_column": "conversion",
+  "validation": {
+    "average_precision": 0.014545335657447391,
+    "log_loss": 0.0521092191907766,
+    "positive_rate": 0.009151707145371349,
+    "roc_auc": 0.579524373396487,
+    "row_count": 8523
+  }
+}

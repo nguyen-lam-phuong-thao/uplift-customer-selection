@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from uplift_modeling.evaluation.locked_test import (
-    get_champion_policy,
     load_locked_test_prediction_frames,
     load_selection_gate_payload,
     resolve_required_prediction_paths,
@@ -35,7 +34,8 @@ def _selection_payload(policy: str = "champion") -> dict:
         "experiment_id": "exp-001",
         "dataset_name": "synthetic",
         "source_manifest_path": "/tmp/manifest.json",
-        "champion_policy": policy,
+        "uplift_champion_policy": policy,
+        "baseline_policy": "baseline",
         "selection_settings": {
             "outcome": "visit",
             "split": "validation",
@@ -43,7 +43,7 @@ def _selection_payload(policy: str = "champion") -> dict:
             "metric": "policy_value",
             "baseline_policy": "baseline",
         },
-        "champion_model_artifact": _model_artifact(policy),
+        "uplift_champion_model_artifact": _model_artifact(policy),
     }
 
 
@@ -71,21 +71,26 @@ def test_selection_gate_must_come_from_validation() -> None:
         )
 
 
-def test_locked_test_requires_only_selected_champion(tmp_path: Path) -> None:
+def test_locked_test_requires_champion_and_baseline_predictions(
+    tmp_path: Path,
+) -> None:
     champion_path = tmp_path / "champion.parquet"
-    other_path = tmp_path / "other.parquet"
+    baseline_path = tmp_path / "baseline.parquet"
 
     resolved = resolve_required_prediction_paths(
         manifest_prediction_paths={
             "champion": champion_path,
-            "other": other_path,
+            "baseline": baseline_path,
         },
         dataset_name="synthetic",
         outcome="visit",
-        champion_policy="champion",
+        required_policies=("champion", "baseline"),
     )
 
-    assert resolved == {"champion": champion_path}
+    assert resolved == {
+        "champion": champion_path,
+        "baseline": baseline_path,
+    }
 
 
 def test_locked_test_loads_test_rows_and_aligns_by_row_id(

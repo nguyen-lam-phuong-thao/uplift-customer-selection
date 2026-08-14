@@ -1,0 +1,56 @@
+{
+  "artifact_type": "model_selection_gate",
+  "baseline_contrast_row": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.2,
+    "ci_lower": -0.007136020447204063,
+    "ci_upper": 0.008920537920400231,
+    "mean_delta": 0.00030490964572270715,
+    "metric": "policy_value",
+    "n_bootstrap": 100,
+    "n_valid_bootstrap": 100,
+    "outcome": "visit",
+    "policy": "x_learner_lgbm",
+    "replacement_gate_passed": false,
+    "split": "validation"
+  },
+  "baseline_policy": "treated_response_lgbm",
+  "bootstrap_artifact": "hillstrom_womens_visit_bootstrap_paired_contrasts_run01.json",
+  "dataset_name": "hillstrom_womens",
+  "experiment_id": "kaggle-hillstrom-womens-visit-007",
+  "recommended_deployment_policy": "treated_response_lgbm",
+  "replacement_gate_method": "bootstrap_paired_contrast_ci_lower_positive",
+  "replacement_gate_passed": false,
+  "selection_settings": {
+    "baseline_policy": "treated_response_lgbm",
+    "budget_fraction": 0.2,
+    "metric": "policy_value",
+    "outcome": "visit",
+    "split": "validation"
+  },
+  "source_manifest_path": "/kaggle/working/uplift-customer-selection/artifacts/metrics/hillstrom_womens_visit_kaggle-hillstrom-womens-visit-007_experiment_manifest.json",
+  "uplift_candidate_rows": [
+    {
+      "metric_value": 0.12283407168027226,
+      "policy": "t_learner_lgbm"
+    },
+    {
+      "metric_value": 0.12377281845333023,
+      "policy": "x_learner_lgbm"
+    }
+  ],
+  "uplift_champion_model_artifact": {
+    "artifact_type": "model_provenance",
+    "constant_treatment_rate_weight": 0.5009564708178802,
+    "control_effect_model_uri": "models:/m-7bf2cf148d0b422e9ee6ea17a1978d97",
+    "dataset_name": "hillstrom_womens",
+    "mlflow_run_id": "ae5896ac6d79415baebb2d5b8637bcc4",
+    "model_kind": "x_learner",
+    "outcome": "visit",
+    "policy_name": "x_learner_lgbm",
+    "prediction_artifact": "hillstrom_womens_visit_x_learner_lgbm_run01_predictions.parquet",
+    "treatment_effect_model_uri": "models:/m-a405341d01444dbdbb4c024692f1d63d"
+  },
+  "uplift_champion_policy": "x_learner_lgbm",
+  "uplift_selection_method": "primary_topk_metric_largest_value"
+}

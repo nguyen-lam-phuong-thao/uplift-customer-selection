@@ -1,0 +1,13 @@
+{
+  "dataset_name": "hillstrom_womens",
+  "model_name": "treated_response_lgbm",
+  "outcome": "conversion",
+  "target_column": "conversion",
+  "validation": {
+    "average_precision": 0.009851796601582734,
+    "log_loss": 0.04278126392978833,
+    "positive_rate": 0.007260803372760276,
+    "roc_auc": 0.5922486652688299,
+    "row_count": 8539
+  }
+}
