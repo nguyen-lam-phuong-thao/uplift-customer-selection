@@ -4,8 +4,21 @@
 
 ---
 
+## Training & Evaluation Notebooks
+
+These three Kaggle notebooks show the Data Science workflow and the shared framework training/evaluation on the two datasets used in this project.
+
+| Dataset | Outcome | Notebook |
+|---|---|---|
+| Hillstrom | Visit | [**Hillstrom Uplift — Visit**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-visit) |
+| Hillstrom | Conversion | [**Hillstrom Uplift — Conversion**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-conversion) |
+| Criteo | Visit / Conversion | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training) |
+
+---
+
 ## Table of Contents
 
+- [Training & Evaluation Notebooks](#training--evaluation-notebooks)
 - [Project Overview](#project-overview)
 - [Purpose](#purpose)
 - [Framework Boundary](#framework-boundary)
@@ -13,7 +26,6 @@
 - [Current Supported Models](#current-supported-models)
 - [Uplift Selection and Replacement Gate](#uplift-selection-and-replacement-gate)
 - [Training Example](#training-example)
-- [Kaggle Training Notebook](#kaggle-training-notebook)
 - [Repository Structure](#repository-structure)
 - [Documentation](#documentation)
 
@@ -338,18 +350,6 @@ python -m uplift_modeling.pipelines.run_experiment \
 ```
 
 Locked-test evaluation is run separately after validation decisions are frozen.
-
----
-
-## Kaggle Training Notebook
-
-Uplift-training notebooks are available here:
-
-[**Criteo uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training)
-
-[**Hillstrom Womens uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-womens-uplift-training)
-
-[**Hillstrom Mens uplift-training notebook**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-men-uplift-training)
 
 ---
 
