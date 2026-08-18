@@ -1,344 +1,73 @@
-# Hillstrom Framework Evaluation
+# Hillstrom Visit vs Conversion Results
 
 ## 1. Objective
 
-Hillstrom được dùng như một dataset mới để **kiểm tra khả năng áp dụng lại uplift modeling framework** ngoài Criteo.
+This report compares the results of the two Hillstrom outcomes:
 
-Mục tiêu của lần train này không phải tối ưu model hay tìm cách tăng performance. Phần cần kiểm tra là framework có giữ được cùng workflow khi chuyển sang Hillstrom và các bước đánh giá có hoạt động đúng theo rule đã định trước hay không.
+- `visit`
+- `conversion`
 
-Cả run `003` và run `004` dùng cùng framework, cùng model set, cùng modeling config, cùng Top-20 rule, cùng bootstrap gate và cùng locked-test workflow. Điểm thay đổi là tỷ lệ chia train / validation / test:
+Both outcomes use the same prepared Hillstrom data structure, the same model set, the same Top-20% targeting rule, and the same evaluation workflow:
 
-- Run `003`: `70% / 15% / 15%`
-- Run `004`: `60% / 20% / 20%`
+**Prepared data → train models → validation evaluation → Top-20 selection → uplift champion → bootstrap replacement gate → locked-test evaluation**
 
-Báo cáo tập trung vào ba câu hỏi:
+For each campaign, the framework trains:
 
-1. Framework có chạy được end-to-end trên Hillstrom với cùng workflow train → validation → selection → replacement gate → locked test hay không?
-2. Các bước đánh giá và decision rule của framework cho ra kết quả như thế nào trên Hillstrom?
-3. Khi chỉ thay tỷ lệ split, kết quả trung gian và quyết định cuối cùng thay đổi đến đâu?
-
-Qini, AUUC, Top-20 policy value và bootstrap được dùng để **kiểm tra evaluation và decision logic của framework**, không phải để model tuning.
-
----
-
-## 2. Experimental design
-
-### Framework và modeling setup
-
-Cả run `003` và run `004` sử dụng **cùng framework và cùng modeling configuration**:
-
-```yaml
-training:
-  prediction_batch_size: 10000
-  early_stopping_rounds: 50
-
-models:
-  model_defaults:
-    objective: binary
-    boosting_type: gbdt
-    n_estimators: 2000
-    learning_rate: 0.03
-    num_leaves: 31
-    max_depth: 6
-    min_child_samples: 200
-    subsample: 0.8
-    subsample_freq: 1
-    colsample_bytree: 0.8
-    reg_alpha: 0.1
-    reg_lambda: 1.0
-    random_state: 42
-
-selection:
-  primary_split: validation
-  primary_budget_fraction: 0.20
-  primary_metric: policy_value
-```
-
-Ba model được train cho từng outcome:
-
-| Model | Vai trò |
+| Model | Role |
 |---|---|
 | `treated_response_lgbm` | Response baseline |
 | `t_learner_lgbm` | Uplift candidate |
 | `x_learner_lgbm` | Uplift candidate |
 
-Workflow được giữ nguyên:
+The uplift champion is selected only between T-Learner and X-Learner. The selected uplift model is then compared with the Response baseline using paired bootstrap.
 
-**Prepared data → train models → validation evaluation → Top-20 selection → uplift champion → bootstrap replacement gate → locked-test evaluation**
-
-Uplift champion chỉ được chọn giữa T-Learner và X-Learner, Response Model được giữ riêng làm baseline. Nếu uplift champion không vượt qua bootstrap replacement gate tại Top 20%, framework fallback về Response Model.
-
-### Data split
-
-| Run | Split | `hillstrom_mens` train / validation / test | `hillstrom_womens` train / validation / test |
-|---|---|---:|---:|
-| `003` | 70% / 15% / 15% | 29,829 / 6,392 / 6,392 | 29,885 / 6,404 / 6,404 |
-| `004` | 60% / 20% / 20% | 25,567 / 8,523 / 8,523 | 25,615 / 8,539 / 8,539 |
-
-Primary selection budget vẫn là **20%** trong cả hai run. Top 20% tương ứng khoảng **1.28k khách hàng ở run `003`** và khoảng **1.71k khách hàng ở run `004`** cho mỗi experiment.
-
----
-
-## 3. Data sufficiency
-
-### Validation sample
-
-| Run | Experiment | Outcome | Validation rows | Positive rate | Số mẫu `outcome = 1` |
-|---|---|---|---:|---:|---:|
-| `003` | Mens | `conversion` | 6,392 | 0.923% | 59 |
-| `003` | Womens | `conversion` | 6,404 | 0.750% | 48 |
-| `003` | Mens | `visit` | 6,392 | 14.456% | 924 |
-| `003` | Womens | `visit` | 6,404 | 12.883% | 825 |
-| `004` | Mens | `conversion` | 8,523 | 0.915% | 78 |
-| `004` | Womens | `conversion` | 8,539 | 0.726% | 62 |
-| `004` | Mens | `visit` | 8,523 | 14.443% | 1,231 |
-| `004` | Womens | `visit` | 8,539 | 12.880% | 1,100 |
-
-Khác biệt rõ nhất nằm ở số positive sample. `visit` có từ **825 đến 1,231** positive observations trên validation, trong khi `conversion` chỉ có từ **48 đến 78**.
-
-Vì vậy, `conversion` dễ dao động hơn khi evaluation chỉ nhìn vào một nhóm Top-k. Điều này cũng thể hiện trên uplift curves: phần đầu curve của `conversion` biến động mạnh hơn, đặc biệt ở population fraction nhỏ. Những spike đầu curve nên được xem là estimate chưa ổn định do số treated/control observations và positive outcomes trong prefix còn ít.
-
----
-
-## 4. Validation ranking across splits
-
-Qini và AUUC được dùng để xem model ranking hoạt động thế nào trên **toàn bộ population curve**. Đây là metric để phân tích ranking behavior, không phải rule cuối cùng để quyết định deployment.
-
-### Whole-curve winner
-
-| Experiment | Outcome | Run `003` | Run `004` | Nhận xét |
-|---|---|---|---|---|
-| Mens | `conversion` | X-Learner | T-Learner | Winner đổi khi thay split |
-| Womens | `conversion` | X-Learner | T-Learner | Winner đổi khi thay split |
-| Mens | `visit` | T-Learner | Response Model | Winner đổi khi thay split |
-| Womens | `visit` | X-Learner | X-Learner | Winner giữ nguyên |
-
-Ba trong bốn experiment–outcome đổi whole-curve winner khi thay split.
-
-- **Mens conversion:** X-Learner đứng đầu ở run `003`, T-Learner đứng đầu ở run `004`.
-- **Womens conversion:** X-Learner đứng đầu ở run `003`; sang run `004`, T-Learner nhỉnh hơn.
-- **Mens visit:** T-Learner đứng đầu ở run `003`; sang run `004`, Response Model đứng đầu và Qini của hai uplift learners đều âm.
-- **Womens visit:** X-Learner đứng đầu ở cả hai run, nên đây là trường hợp whole-curve ranking ổn định nhất giữa hai split.
-
-Kết quả này cho thấy Qini/AUUC winner có thể thay đổi theo split. Vì vậy, framework không dùng whole-curve winner làm quyết định deployment mà tiếp tục đánh giá tại Top 20% và qua replacement gate.
-
----
-
-## 5. Top-20 selection & replacement gate
-
-Cả hai run sử dụng cùng mức ngân sách **Top 20%** và cùng replacement logic. T-Learner và X-Learner được so sánh theo `policy_value` để chọn uplift champion; champion sau đó được so với Response baseline bằng paired bootstrap.
-
-Điều kiện thay baseline:
+The baseline is replaced only when:
 
 ```text
 ci_lower > 0
 ```
 
-### Run `003`
-
-| Experiment | Outcome      | Model                   | Incremental outcome | Policy value |
-| ---------- | ------------ | ----------------------- | ------------------: | -----------: |
-| Mens       | `conversion` | `t_learner_lgbm`        |               7.088 |     0.006884 |
-| Mens       | `conversion` | `treated_response_lgbm` |               8.659 |     0.007196 |
-| Mens       | `conversion` | `x_learner_lgbm`        |          **13.360** | **0.007822** |
-| Womens     | `conversion` | `t_learner_lgbm`        |              10.023 | **0.007498** |
-| Womens     | `conversion` | `treated_response_lgbm` |          **10.102** |     0.007499 |
-| Womens     | `conversion` | `x_learner_lgbm`        |               8.169 |     0.007187 |
-| Mens       | `visit`      | `t_learner_lgbm`        |         **119.185** | **0.120463** |
-| Mens       | `visit`      | `treated_response_lgbm` |             108.031 |     0.117960 |
-| Mens       | `visit`      | `x_learner_lgbm`        |             104.368 |     0.117647 |
-| Womens     | `visit`      | `t_learner_lgbm`        |             110.792 |     0.123444 |
-| Womens     | `visit`      | `treated_response_lgbm` |              76.835 |     0.117155 |
-| Womens     | `visit`      | `x_learner_lgbm`        |         **128.777** | **0.128132** |
-
-Tại Top 20%, Mens `conversion` chọn X-Learner, Womens `conversion` chọn T-Learner, Mens `visit` chọn T-Learner và Womens `visit` chọn X-Learner làm uplift champion.
-
-| Experiment | Outcome      | Uplift champion  | Champion policy value | Response policy value | Mean Δ policy value | 95% CI                | Gate   | Deployment              |
-| ---------- | ------------ | ---------------- | --------------------: | --------------------: | ------------------: | --------------------- | ------ | ----------------------- |
-| Mens       | `conversion` | `x_learner_lgbm` |              0.007822 |              0.007196 |           +0.000142 | [-0.001419, 0.001559] | Failed | `treated_response_lgbm` |
-| Womens     | `conversion` | `t_learner_lgbm` |              0.007498 |              0.007499 |           -0.000013 | [-0.000633, 0.000926] | Failed | `treated_response_lgbm` |
-| Mens       | `visit`      | `t_learner_lgbm` |              0.120463 |              0.117960 |           +0.002677 | [-0.005861, 0.010290] | Failed | `treated_response_lgbm` |
-| Womens     | `visit`      | `x_learner_lgbm` |              0.128132 |              0.117155 |           +0.009522 | [-0.000201, 0.019971] | Failed | `treated_response_lgbm` |
-
-Một số uplift champion có `policy_value` cao hơn Response baseline, đặc biệt ở Womens `visit`. Tuy nhiên, 95% CI của phần chênh lệch vẫn chứa 0 ở cả bốn trường hợp. Vì vậy, chưa có uplift champion nào vượt qua replacement gate và Response Model tiếp tục được giữ lại.
-
-### Run `004`
-
-| Experiment | Outcome      | Model                   | Incremental outcome | Policy value |
-| ---------- | ------------ | ----------------------- | ------------------: | -----------: |
-| Mens       | `conversion` | `t_learner_lgbm`        |          **22.607** | **0.008213** |
-| Mens       | `conversion` | `treated_response_lgbm` |              20.965 |     0.007978 |
-| Mens       | `conversion` | `x_learner_lgbm`        |              21.361 |     0.007979 |
-| Womens     | `conversion` | `t_learner_lgbm`        |           **1.909** | **0.005861** |
-| Womens     | `conversion` | `treated_response_lgbm` |              -3.775 |     0.005157 |
-| Womens     | `conversion` | `x_learner_lgbm`        |               1.483 |     0.005859 |
-| Mens       | `visit`      | `t_learner_lgbm`        |             157.279 |     0.120149 |
-| Mens       | `visit`      | `treated_response_lgbm` |         **177.874** |     0.123902 |
-| Mens       | `visit`      | `x_learner_lgbm`        |             161.878 | **0.123434** |
-| Womens     | `visit`      | `t_learner_lgbm`        |             142.914 |     0.122834 |
-| Womens     | `visit`      | `treated_response_lgbm` |         **166.871** |     0.123486 |
-| Womens     | `visit`      | `x_learner_lgbm`        |             136.673 | **0.123773** |
-
-Ở run `004`, T-Learner được chọn làm uplift champion cho cả Mens và Womens `conversion`, trong khi X-Learner được chọn cho cả hai `visit` experiment.
-
-Với Mens `visit`, Response Model có `policy_value` cao nhất trong ba model, nhưng uplift champion vẫn là X-Learner vì bước champion selection chỉ so sánh hai uplift candidates. Womens `visit` cũng chọn X-Learner vì model này có `policy_value` cao hơn T-Learner, dù Response Model có incremental outcome cao hơn.
-
-| Experiment | Outcome      | Uplift champion  | Champion policy value | Response policy value | Mean Δ policy value | 95% CI                | Gate   | Deployment              |
-| ---------- | ------------ | ---------------- | --------------------: | --------------------: | ------------------: | --------------------- | ------ | ----------------------- |
-| Mens       | `conversion` | `t_learner_lgbm` |              0.008213 |              0.007978 |           +0.000331 | [-0.000836, 0.001532] | Failed | `treated_response_lgbm` |
-| Womens     | `conversion` | `t_learner_lgbm` |              0.005861 |              0.005157 |           +0.000677 | [-0.000355, 0.001647] | Failed | `treated_response_lgbm` |
-| Mens       | `visit`      | `x_learner_lgbm` |              0.123434 |              0.123902 |           -0.000929 | [-0.008207, 0.005315] | Failed | `treated_response_lgbm` |
-| Womens     | `visit`      | `x_learner_lgbm` |              0.123773 |              0.123486 |           +0.000305 | [-0.007136, 0.008921] | Failed | `treated_response_lgbm` |
-
-Tương tự run `003`, không trường hợp nào có 95% CI của phần chênh lệch nằm hoàn toàn trên 0. Vì vậy, cả bốn replacement gate đều failed và Response Model tiếp tục được giữ lại.
-
-Nhìn chung, uplift champion có thay đổi giữa hai split ở một số experiment, nhưng quyết định cuối cùng không đổi: chưa có uplift model nào chứng minh được mức cải thiện đủ ổn định tại Top 20% để thay Response baseline.
-
+The purpose of this comparison is not to decide whether `visit` or `conversion` is a "better" outcome. They measure different customer behaviors. The goal is to understand how the modeling and evaluation results differ between a relatively common outcome and a much rarer one.
 
 ---
 
-## 7. Split sensitivity
+## 2. Validation Data Sufficiency
 
-Vì framework và evaluation logic được giữ nguyên, phần này chỉ xem xét tác động của việc thay tỷ lệ split.
+The clearest difference between the two outcomes appears before model comparison.
 
-| Experiment | Outcome | Whole-curve winner `003` | Whole-curve winner `004` | Uplift champion `003` | Uplift champion `004` | Deployment `003` | Deployment `004` |
-|---|---|---|---|---|---|---|---|
-| Mens | `conversion` | X-Learner | T-Learner | X-Learner | T-Learner | Response Model | Response Model |
-| Womens | `conversion` | X-Learner | T-Learner | T-Learner | T-Learner | Response Model | Response Model |
-| Mens | `visit` | T-Learner | Response Model | T-Learner | X-Learner | Response Model | Response Model |
-| Womens | `visit` | X-Learner | X-Learner | X-Learner | X-Learner | Response Model | Response Model |
+| Experiment | Outcome | Validation rows | Positive rate | Positive observations |
+|---|---|---:|---:|---:|
+| Mens | `visit` | 8,523 | 14.443% | 1,231 |
+| Womens | `visit` | 8,539 | 12.880% | 1,100 |
+| Mens | `conversion` | 8,523 | 0.915% | 78 |
+| Womens | `conversion` | 8,539 | 0.726% | 62 |
 
-Có ba pattern chính:
+`visit` has more than one thousand positive observations in each validation set, while `conversion` has fewer than one hundred.
 
-- **Whole-curve ranking nhạy với split:** 3/4 experiment–outcome đổi winner.
-- **Uplift champion ổn định hơn ở Womens:** Womens conversion vẫn chọn T-Learner ở cả hai run; Womens visit vẫn chọn X-Learner ở cả hai run. Với Mens, champion đổi ở cả conversion và visit.
-- **Deployment decision không đổi:** tất cả replacement gate đều failed, nên Response Model được giữ trong cả hai split.
+This matters because the framework evaluates only the selected Top-20% group at the main business decision point. For `conversion`, that means the policy estimate is based on a much smaller number of positive outcomes.
 
-### Locked-test stability của Response policy
-
-| Experiment | Outcome | Run `003` — 95% CI | Run `004` — 95% CI | Nhận xét |
-|---|---|---:|---:|---|
-| Mens | `conversion` | **[5.095, 29.629]** | [-1.274, 27.925] | Kết quả thay đổi theo split |
-| Womens | `conversion` | [-10.708, 14.990] | [-2.705, 29.989] | Cả hai run đều chưa loại trừ 0 |
-| Mens | `visit` | **[78.872, 184.539]** | **[104.522, 233.457]** | Incremental visit dương ở cả hai split |
-| Womens | `visit` | **[77.056, 189.841]** | **[84.528, 192.438]** | Incremental visit dương ở cả hai split |
-
-Như vậy, đổi split làm thay đổi khá nhiều **winner trung gian**, nhưng không làm thay đổi **replacement decision**. `visit` cũng giữ pattern ổn định hơn `conversion` trên locked test.
+As a result, conversion estimates are expected to be less stable, especially near the beginning of the uplift curve where the selected population is still small.
 
 ---
 
-## 8. Limitations
+# 3. Visit Results
 
-### Rare conversion outcome
+## 3.1 Response Model Diagnostics
 
-`conversion` chỉ có từ 48 đến 78 positive observations trên validation, trong khi `visit` có từ 825 đến 1,231. Vì vậy, conversion metrics và Top-k estimates dễ dao động hơn.
+The Response Model shows:
 
-### Split dependence
+| Experiment | ROC-AUC | Average Precision |
+|---|---:|---:|
+| Mens Visit | 0.628 | 0.2093 |
+| Womens Visit | 0.621 | 0.1825 |
 
-Hai run thay đổi cả train size lẫn validation/test size. Vì vậy, thay đổi kết quả giữa `003` và `004` phản ánh sensitivity với toàn bộ cách chia dữ liệu, không chỉ riêng việc validation lớn hơn.
-
-### Same source dataset
-
-Cả hai run đều dùng Hillstrom. Đây là split-sensitivity analysis trên cùng một dataset, không phải hai independent experiments.
-
-### Early-curve instability
-
-Các điểm đầu của uplift curve, đặc biệt ở `conversion`, có thể dao động mạnh do sample trong prefix còn nhỏ. Không nên diễn giải các spike này như treatment effect ổn định.
+These metrics are used only as model diagnostics. They do not decide the final targeting policy.
 
 ---
 
-## 9. Conclusion
+## 3.2 Validation Whole-Curve Results
 
-1. **Framework chạy đầy đủ trên Hillstrom ở cả Mens/Womens và cả hai split.**  
-   Cùng workflow train → validation evaluation → Top-20 selection → uplift champion → replacement gate → locked test được giữ nguyên cho cả `conversion` và `visit`.
-
-2. **Decision rule hoạt động nhất quán.**  
-   Uplift champion được chọn giữa T-Learner và X-Learner theo `policy_value`, sau đó mới so với Response baseline. Không champion nào vượt replacement gate ở cả run `003` và `004`, nên Response Model được giữ cho deployment.
-
-3. **Kết quả trung gian nhạy với split, nhưng quyết định cuối cùng không đổi.**  
-   Whole-curve winner đổi ở 3/4 experiment–outcome. Uplift champion của Mens cũng đổi giữa hai split, trong khi Womens giữ cùng champion cho cả hai outcome. Dù vậy, deployment recommendation vẫn là Response Model trong tất cả trường hợp.
-
-4. **`visit` cho kết quả ổn định hơn `conversion`.**  
-   Trên locked test, Mens và Womens `visit` đều có bootstrap CI của incremental outcome hoàn toàn lớn hơn 0 ở cả hai split. `conversion` có ít positive observations hơn và confidence interval kém ổn định hơn.
-
-Tóm lại, Hillstrom cho thấy framework có thể được áp dụng lại trên một dataset khác với cùng workflow và cùng decision logic. Run `003` và run `004` không phải hai cách modeling khác nhau; chúng chỉ thay tỷ lệ split để kiểm tra độ nhạy. Kết quả chính của giai đoạn này là **xác nhận framework chạy end-to-end và giữ được decision logic nhất quán**, không phải tối ưu model performance.
-
----
-
-# Appendix
-
-## A. Response Model diagnostics
-
-| Run | Experiment | Outcome | ROC-AUC | Average Precision |
-|---|---|---|---:|---:|
-| `003` | Mens | `conversion` | 0.631 | 0.0145 |
-| `003` | Womens | `conversion` | 0.600 | 0.0107 |
-| `003` | Mens | `visit` | 0.632 | 0.2190 |
-| `003` | Womens | `visit` | 0.620 | 0.1801 |
-| `004` | Mens | `conversion` | 0.580 | 0.0145 |
-| `004` | Womens | `conversion` | 0.592 | 0.0099 |
-| `004` | Mens | `visit` | 0.628 | 0.2093 |
-| `004` | Womens | `visit` | 0.621 | 0.1825 |
-
-Các chỉ số này chỉ dùng để kiểm tra Response Model có học được tín hiệu outcome hay không. Chúng không tham gia replacement decision.
-
----
-
-## B. Validation whole-curve metrics
-
-### Run `003`
-
-#### Mens — Conversion
-
-| Model | AUUC | Qini |
-|---|---:|---:|
-| `t_learner_lgbm` | 10.568 | 0.068 |
-| `treated_response_lgbm` | 11.773 | 1.273 |
-| `x_learner_lgbm` | **11.993** | **1.493** |
-
-#### Womens — Conversion
-
-| Model | AUUC | Qini |
-|---|---:|---:|
-| `t_learner_lgbm` | 9.049 | 4.085 |
-| `treated_response_lgbm` | 8.896 | 3.932 |
-| `x_learner_lgbm` | **9.355** | **4.391** |
-
-#### Mens — Visit
-
-| Model | AUUC | Qini |
-|---|---:|---:|
-| `t_learner_lgbm` | **128.038** | **6.038** |
-| `treated_response_lgbm` | 125.490 | 3.490 |
-| `x_learner_lgbm` | 122.097 | 0.097 |
-
-#### Womens — Visit
-
-| Model | AUUC | Qini |
-|---|---:|---:|
-| `t_learner_lgbm` | 85.608 | 13.640 |
-| `treated_response_lgbm` | 80.685 | 8.717 |
-| `x_learner_lgbm` | **95.291** | **23.323** |
-
-### Run `004`
-
-#### Mens — Conversion
-
-| Model | AUUC | Qini |
-|---|---:|---:|
-| `t_learner_lgbm` | **19.446** | **4.449** |
-| `treated_response_lgbm` | 17.786 | 2.788 |
-| `x_learner_lgbm` | 18.657 | 3.660 |
-
-#### Womens — Conversion
-
-| Model | AUUC | Qini |
-|---|---:|---:|
-| `t_learner_lgbm` | **9.506** | **2.554** |
-| `treated_response_lgbm` | 8.139 | 1.187 |
-| `x_learner_lgbm` | 9.463 | 2.511 |
-
-#### Mens — Visit
+### Mens Visit
 
 | Model | AUUC | Qini |
 |---|---:|---:|
@@ -346,7 +75,15 @@ Các chỉ số này chỉ dùng để kiểm tra Response Model có học đư�
 | `treated_response_lgbm` | **175.328** | **11.881** |
 | `x_learner_lgbm` | 161.625 | -1.822 |
 
-#### Womens — Visit
+For Mens Visit, the Response Model has the strongest whole-curve result.
+
+Both uplift models have negative Qini values, which means their full-population ranking is weaker than the Response ranking in this validation sample.
+
+![Mens Visit Qini Curve](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_qini_curve.png)
+
+![Mens Visit Uplift Curve](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_uplift_curve.png)
+
+### Womens Visit
 
 | Model | AUUC | Qini |
 |---|---:|---:|
@@ -354,155 +91,220 @@ Các chỉ số này chỉ dùng để kiểm tra Response Model có học đư�
 | `treated_response_lgbm` | 118.839 | 21.741 |
 | `x_learner_lgbm` | **134.315** | **37.217** |
 
----
+For Womens Visit, X-Learner has the strongest AUUC and Qini.
 
-## C. Run `003` detailed Top-20 metrics
+This is different from Mens Visit, where the Response Model leads across the full curve. Therefore, the two email campaigns do not produce the same ranking pattern even when the outcome is the same.
 
-| Experiment | Outcome | Model | Incremental outcome | Policy value |
-|---|---|---|---:|---:|
-| Mens | `conversion` | `t_learner_lgbm` | 7.088 | 0.006884 |
-| Mens | `conversion` | `treated_response_lgbm` | 8.659 | 0.007196 |
-| Mens | `conversion` | `x_learner_lgbm` | **13.360** | **0.007822** |
-| Womens | `conversion` | `t_learner_lgbm` | 10.023 | 0.007498 |
-| Womens | `conversion` | `treated_response_lgbm` | **10.102** | **0.007499** |
-| Womens | `conversion` | `x_learner_lgbm` | 8.169 | 0.007187 |
-| Mens | `visit` | `t_learner_lgbm` | **119.185** | **0.120463** |
-| Mens | `visit` | `treated_response_lgbm` | 108.031 | 0.117960 |
-| Mens | `visit` | `x_learner_lgbm` | 104.368 | 0.117647 |
-| Womens | `visit` | `t_learner_lgbm` | 110.792 | 0.123444 |
-| Womens | `visit` | `treated_response_lgbm` | 76.835 | 0.117155 |
-| Womens | `visit` | `x_learner_lgbm` | **128.777** | **0.128132** |
+![Womens Visit Qini Curve](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_qini_curve.png)
+
+![Womens Visit Uplift Curve](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_uplift_curve.png)
 
 ---
 
-## D. Run `004` validation details
+## 3.3 Visit Top-20% Policy Results
 
-### Top-20 metrics
+| Experiment | Model | Incremental visits | Policy value |
+|---|---|---:|---:|
+| Mens | `t_learner_lgbm` | 157.279 | 0.120149 |
+| Mens | `treated_response_lgbm` | **177.874** | **0.123902** |
+| Mens | `x_learner_lgbm` | 161.878 | 0.123434 |
+| Womens | `t_learner_lgbm` | 142.914 | 0.122834 |
+| Womens | `treated_response_lgbm` | **166.871** | 0.123486 |
+| Womens | `x_learner_lgbm` | 136.673 | **0.123773** |
 
-| Experiment | Outcome | Model | Incremental outcome | Policy value |
-|---|---|---|---:|---:|
-| Mens | `conversion` | `t_learner_lgbm` | **22.607** | **0.008213** |
-| Mens | `conversion` | `treated_response_lgbm` | 20.965 | 0.007978 |
-| Mens | `conversion` | `x_learner_lgbm` | 21.361 | 0.007979 |
-| Womens | `conversion` | `t_learner_lgbm` | **1.909** | **0.005861** |
-| Womens | `conversion` | `treated_response_lgbm` | -3.775 | 0.005157 |
-| Womens | `conversion` | `x_learner_lgbm` | 1.483 | 0.005859 |
-| Mens | `visit` | `t_learner_lgbm` | 157.279 | 0.120149 |
-| Mens | `visit` | `treated_response_lgbm` | **177.874** | **0.123902** |
-| Mens | `visit` | `x_learner_lgbm` | 161.878 | 0.123434 |
-| Womens | `visit` | `t_learner_lgbm` | 142.914 | 0.122834 |
-| Womens | `visit` | `treated_response_lgbm` | **166.871** | 0.123486 |
-| Womens | `visit` | `x_learner_lgbm` | 136.673 | **0.123773** |
+For Mens Visit, the Response Model has the highest Top-20% policy value.
 
-### Uplift champion and gate
+For Womens Visit, X-Learner has the highest policy value, but the difference from the Response Model is very small.
 
-| Experiment | Outcome | Uplift champion | Mean Δ policy value | 95% CI | Gate | Deployment |
-|---|---|---|---:|---:|---|---|
-| Mens | `conversion` | `t_learner_lgbm` | +0.000331 | [-0.000836, 0.001532] | Failed | `treated_response_lgbm` |
-| Womens | `conversion` | `t_learner_lgbm` | +0.000677 | [-0.000355, 0.001647] | Failed | `treated_response_lgbm` |
-| Mens | `visit` | `x_learner_lgbm` | -0.000929 | [-0.008207, 0.005315] | Failed | `treated_response_lgbm` |
-| Womens | `visit` | `x_learner_lgbm` | +0.000305 | [-0.007136, 0.008921] | Failed | `treated_response_lgbm` |
+The uplift-candidate step compares only T-Learner and X-Learner. X-Learner therefore becomes the uplift champion for both Visit experiments.
 
 ---
 
-## E. Run `003` locked-test details
+## 3.4 Visit Replacement Gate
 
-### Whole-curve metrics
+| Experiment | Uplift champion | Mean Δ policy value vs Response | 95% CI | Gate | Recommended policy |
+|---|---|---:|---:|---|---|
+| Mens Visit | `x_learner_lgbm` | -0.000929 | [-0.008207, 0.005315] | Failed | `treated_response_lgbm` |
+| Womens Visit | `x_learner_lgbm` | +0.000305 | [-0.007136, 0.008921] | Failed | `treated_response_lgbm` |
 
-| Experiment | Outcome | Policy | AUUC | Qini | Policy value |
-|---|---|---|---:|---:|---:|
-| Mens | `conversion` | `treated_response_lgbm` | 14.555 | 3.555 | 0.007822 |
-| Mens | `conversion` | `x_learner_lgbm` | 14.491 | 3.491 | 0.008761 |
-| Womens | `conversion` | `treated_response_lgbm` | 6.058 | 1.092 | 0.006555 |
-| Womens | `conversion` | `t_learner_lgbm` | 6.023 | 1.056 | 0.006868 |
-| Mens | `visit` | `treated_response_lgbm` | 129.663 | 7.163 | 0.133917 |
-| Mens | `visit` | `t_learner_lgbm` | 121.213 | -1.287 | 0.128285 |
-| Womens | `visit` | `treated_response_lgbm` | 90.578 | 17.821 | 0.130834 |
-| Womens | `visit` | `x_learner_lgbm` | 105.092 | 32.335 | 0.131539 |
+Neither confidence interval lies completely above zero.
 
-### Top-20 policy metrics
+For Mens Visit, the mean difference is slightly negative. For Womens Visit, the mean difference is slightly positive, but the interval still crosses zero.
 
-| Experiment | Outcome | Policy | Incremental outcome | Bootstrap mean | 95% CI |
-|---|---|---|---:|---:|---:|
-| Mens | `conversion` | `treated_response_lgbm` | 18.102 | 16.938 | **[5.095, 29.629]** |
-| Mens | `conversion` | `x_learner_lgbm` | 18.070 | 16.673 | **[3.363, 31.186]** |
-| Womens | `conversion` | `treated_response_lgbm` | 1.366 | 1.109 | [-10.708, 14.990] |
-| Womens | `conversion` | `t_learner_lgbm` | 1.571 | 1.853 | [-10.404, 11.695] |
-| Mens | `visit` | `treated_response_lgbm` | 139.413 | 135.773 | **[78.872, 184.539]** |
-| Mens | `visit` | `t_learner_lgbm` | 110.351 | 110.751 | **[55.314, 166.792]** |
-| Womens | `visit` | `treated_response_lgbm` | 131.083 | 127.189 | **[77.056, 189.841]** |
-| Womens | `visit` | `x_learner_lgbm` | 113.860 | 111.419 | **[71.292, 160.416]** |
+The validation evidence is therefore not strong enough to replace the Response baseline in either Visit experiment.
 
 ---
 
-## F. Run `004` locked-test details
+## 3.5 Visit Locked-Test Results
 
-### Response policy
+The selected Response policies are then evaluated on the locked test.
 
-| Experiment | Outcome | Policy | Test Qini | Top-20% incremental outcome | Bootstrap mean | 95% CI |
-|---|---|---|---:|---:|---:|---:|
-| Mens | `conversion` | `treated_response_lgbm` | 0.733 | 11.642 | 12.171 | [-1.274, 27.925] |
-| Womens | `conversion` | `treated_response_lgbm` | 3.018 | 13.117 | 12.906 | [-2.705, 29.989] |
-| Mens | `visit` | `treated_response_lgbm` | 5.816 | 164.616 | 161.490 | **[104.522, 233.457]** |
-| Womens | `visit` | `treated_response_lgbm` | 13.304 | 130.000 | 135.916 | **[84.528, 192.438]** |
+| Experiment | Test Qini | Top-20% incremental visits | Bootstrap mean | 95% CI |
+|---|---:|---:|---:|---:|
+| Mens Visit | 5.816 | 164.616 | 161.490 | **[104.522, 233.457]** |
+| Womens Visit | 13.304 | 130.000 | 135.916 | **[84.528, 192.438]** |
 
-### Paired contrast: uplift champion vs Response
+Both confidence intervals are completely above zero.
 
-| Experiment | Outcome | Uplift champion | Δ policy value | 95% CI | Δ incremental outcome | 95% CI |
-|---|---|---|---:|---:|---:|---:|
-| Mens | `conversion` | `t_learner_lgbm` | -0.001012 | [-0.003414, 0.001192] | -7.404 | [-27.257, 11.603] |
-| Womens | `conversion` | `t_learner_lgbm` | -0.000647 | [-0.001865, 0.000468] | -5.786 | [-15.844, 3.788] |
-| Mens | `visit` | `x_learner_lgbm` | -0.001399 | [-0.008008, 0.005749] | -13.809 | [-60.458, 39.074] |
-| Womens | `visit` | `x_learner_lgbm` | -0.000333 | [-0.010477, 0.009390] | -17.750 | [-102.486, 49.126] |
+This gives a clear result for `visit`: the selected Response policies produce positive incremental visits on unseen data for both email campaigns.
 
 ---
 
-## G. Figures
+# 4. Conversion Results
 
-### Run `003` — Mens Conversion
+## 4.1 Response Model Diagnostics
 
-![Mens Conversion Qini Curve — run 003](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run03_qini_curve.png)
+The Response Model shows:
 
-![Mens Conversion Uplift Curve — run 003](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run03_uplift_curve.png)
+| Experiment | ROC-AUC | Average Precision |
+|---|---:|---:|
+| Mens Conversion | 0.580 | 0.0145 |
+| Womens Conversion | 0.592 | 0.0099 |
 
-### Run `003` — Womens Conversion
+Average Precision is much lower than for `visit`, which is expected because conversion is much rarer.
 
-![Womens Conversion Qini Curve — run 003](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run03_qini_curve.png)
+These metrics are still only diagnostics and do not decide the final policy.
 
-![Womens Conversion Uplift Curve — run 003](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run03_uplift_curve.png)
+---
 
-### Run `003` — Mens Visit
+## 4.2 Validation Whole-Curve Results
 
-![Mens Visit Qini Curve — run 003](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run03_qini_curve.png)
+### Mens Conversion
 
-![Mens Visit Uplift Curve — run 003](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run03_uplift_curve.png)
+| Model | AUUC | Qini |
+|---|---:|---:|
+| `t_learner_lgbm` | **19.446** | **4.449** |
+| `treated_response_lgbm` | 17.786 | 2.788 |
+| `x_learner_lgbm` | 18.657 | 3.660 |
 
-### Run `003` — Womens Visit
+For Mens Conversion, T-Learner has the strongest whole-curve result.
 
-![Womens Visit Qini Curve — run 003](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run03_qini_curve.png)
+![Mens Conversion Qini Curve](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_qini_curve.png)
 
-![Womens Visit Uplift Curve — run 003](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run03_uplift_curve.png)
+![Mens Conversion Uplift Curve](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_uplift_curve.png)
 
-### Run `004` — Mens Conversion
+### Womens Conversion
 
-![Mens Conversion Qini Curve — run 004](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_qini_curve.png)
+| Model | AUUC | Qini |
+|---|---:|---:|
+| `t_learner_lgbm` | **9.506** | **2.554** |
+| `treated_response_lgbm` | 8.139 | 1.187 |
+| `x_learner_lgbm` | 9.463 | 2.511 |
 
-![Mens Conversion Uplift Curve — run 004](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_uplift_curve.png)
+T-Learner also leads Womens Conversion, although X-Learner is very close.
 
-### Run `004` — Womens Conversion
+So, unlike Visit, both Conversion experiments give the same whole-curve winner.
 
-![Womens Conversion Qini Curve — run 004](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_qini_curve.png)
+![Womens Conversion Qini Curve](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_qini_curve.png)
 
-![Womens Conversion Uplift Curve — run 004](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_uplift_curve.png)
+![Womens Conversion Uplift Curve](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_uplift_curve.png)
 
-### Run `004` — Mens Visit
+---
 
-![Mens Visit Qini Curve — run 004](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_qini_curve.png)
+## 4.3 Conversion Top-20% Policy Results
 
-![Mens Visit Uplift Curve — run 004](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_uplift_curve.png)
+| Experiment | Model | Incremental conversions | Policy value |
+|---|---|---:|---:|
+| Mens | `t_learner_lgbm` | **22.607** | **0.008213** |
+| Mens | `treated_response_lgbm` | 20.965 | 0.007978 |
+| Mens | `x_learner_lgbm` | 21.361 | 0.007979 |
+| Womens | `t_learner_lgbm` | **1.909** | **0.005861** |
+| Womens | `treated_response_lgbm` | -3.775 | 0.005157 |
+| Womens | `x_learner_lgbm` | 1.483 | 0.005859 |
 
-### Run `004` — Womens Visit
+T-Learner has the highest Top-20% policy value in both Conversion experiments.
 
-![Womens Visit Qini Curve — run 004](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_qini_curve.png)
+It is therefore selected as the uplift champion for both campaigns.
 
-![Womens Visit Uplift Curve — run 004](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_uplift_curve.png)
+However, the differences in policy value are small, especially for Womens Conversion where T-Learner and X-Learner are almost identical.
+
+---
+
+## 4.4 Conversion Replacement Gate
+
+| Experiment | Uplift champion | Mean Δ policy value vs Response | 95% CI | Gate | Recommended policy |
+|---|---|---:|---:|---|---|
+| Mens Conversion | `t_learner_lgbm` | +0.000331 | [-0.000836, 0.001532] | Failed | `treated_response_lgbm` |
+| Womens Conversion | `t_learner_lgbm` | +0.000677 | [-0.000355, 0.001647] | Failed | `treated_response_lgbm` |
+
+Both point estimates are positive, but both confidence intervals cross zero.
+
+Therefore, T-Learner does not show a stable enough improvement over the Response baseline to justify replacement.
+
+As with Visit, the final validation decision is to keep the Response Model.
+
+---
+
+## 4.5 Conversion Locked-Test Results
+
+| Experiment | Test Qini | Top-20% incremental conversions | Bootstrap mean | 95% CI |
+|---|---:|---:|---:|---:|
+| Mens Conversion | 0.733 | 11.642 | 12.171 | [-1.274, 27.925] |
+| Womens Conversion | 3.018 | 13.117 | 12.906 | [-2.705, 29.989] |
+
+Unlike Visit, both conversion confidence intervals cross zero.
+
+The point estimates are positive, but the locked-test evidence is not strong enough to conclude that the incremental conversion outcome is clearly above zero.
+
+This is consistent with the small number of conversion events observed in validation.
+
+---
+
+# 5. Visit vs Conversion
+
+The two outcomes follow the same modeling and evaluation workflow, but they produce different levels of statistical stability.
+
+| Comparison | Visit | Conversion |
+|---|---|---|
+| Validation positive observations | 1,100–1,231 | 62–78 |
+| Uplift champion | X-Learner | T-Learner |
+| Champion passes replacement gate? | No | No |
+| Final recommended policy | Response Model | Response Model |
+| Locked-test incremental outcome CI | Above zero for both campaigns | Crosses zero for both campaigns |
+| Overall stability | Stronger | Weaker |
+
+The most important difference is not the name of the uplift champion.
+
+For `visit`, there are many more positive observations. The locked-test Response policies have confidence intervals fully above zero for both Mens and Womens campaigns.
+
+For `conversion`, the outcome is much rarer. Even when T-Learner has the strongest validation ranking and Top-20% result, its advantage over the Response baseline is not stable under bootstrap. On the locked test, the incremental-conversion confidence intervals also cross zero.
+
+The absolute values of `visit` and `conversion` metrics should not be directly compared because they represent different outcomes with very different base rates. The useful comparison is the strength and stability of the evidence.
+
+---
+
+# 6. Main Findings
+
+1. **Visit provides stronger evaluation evidence than conversion.**  
+   Visit has many more positive observations, so the models have more outcome signal to learn from and the Top-20% and locked-test estimates are more stable.
+
+2. **The best uplift candidate is different for the two outcomes.**  
+   X-Learner is selected for `visit`, while T-Learner is selected for `conversion`.
+
+3. **Neither uplift champion is strong enough to replace the Response baseline.**  
+   All four replacement-gate confidence intervals include zero.
+
+4. **The final recommended policy is the Response Model for both outcomes and both campaigns.**  
+   The framework does not replace the baseline based only on a better validation point estimate.
+
+5. **The locked test shows a clearer result for visit.**  
+   `visit` has positive incremental outcomes with confidence intervals fully above zero, while `conversion` remains uncertain because its confidence intervals still include zero.
+
+---
+
+# 7. Conclusion
+
+Hillstrom shows that the same uplift-modeling workflow can produce different results depending on the outcome.
+
+For `visit`, the higher positive rate provides more outcome signal for model learning and evaluation. X-Learner is the stronger uplift candidate, but it does not show a stable improvement over the Response baseline. The selected Response policies then show clearly positive incremental visits on the locked test.
+
+For `conversion`, the positive outcome is very rare compared with the full dataset. This gives the models much less signal to learn from and makes treatment-effect and Top-20% estimates less stable. T-Learner is the stronger uplift candidate, but its improvement over the Response baseline is uncertain, and the locked-test confidence intervals also include zero.
+
+The final decision is therefore the same for both outcomes:
+
+**Keep the Response Model as the recommended policy.**
+
+The main difference is the strength of the evidence. `visit` gives a clearer and more stable result, while `conversion` is harder to learn and evaluate because positive outcomes are too sparse.
+
+This shows that model quality depends not only on the modeling method, but also on how much useful outcome signal is available in the dataset.
+

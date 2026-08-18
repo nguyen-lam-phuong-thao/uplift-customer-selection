@@ -12,7 +12,15 @@ These three Kaggle notebooks show the Data Science workflow and the shared frame
 |---|---|---|
 | Hillstrom | Visit | [**Hillstrom Uplift — Visit**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-visit) |
 | Hillstrom | Conversion | [**Hillstrom Uplift — Conversion**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-conversion) |
-| Criteo | Visit / Conversion | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training) |
+| Criteo | Visit | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training) |
+
+---
+
+## Experiment Reports
+
+- [**Criteo Training Results**](docs/week_3/criteo_train_result.md)
+- [**Hillstrom Training Results**](docs/week_4/hillstrom_train_result.md)
+
 
 ---
 
