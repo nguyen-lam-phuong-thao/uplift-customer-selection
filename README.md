@@ -6,13 +6,16 @@
 
 ## Training & Evaluation Notebooks
 
-These three Kaggle notebooks show the Data Science workflow and the shared framework training/evaluation on the two datasets used in this project.
+These notebooks show the Data Science workflow and the shared framework training/evaluation on the datasets used in this project.
 
 | Dataset | Outcome | Notebook |
 |---|---|---|
 | Hillstrom | Visit | [**Hillstrom Uplift — Visit**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-visit) |
 | Hillstrom | Conversion | [**Hillstrom Uplift — Conversion**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-conversion) |
 | Criteo | Visit | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training) |
+| RetailHero | Purchase | [**RetailHero Data Understanding & Cleaning**](notebooks/phase2_retailhero/01_retailhero_data_understanding_and_cleaning.ipynb) |
+| RetailHero | Purchase | [**RetailHero EDA**](notebooks/phase2_retailhero/02_retailhero_eda.ipynb) |
+| RetailHero | Purchase | [**RetailHero Feature Engineering & Training**](notebooks/phase2_retailhero/03_retailhero_feature_engineering.ipynb) |
 
 ---
 
