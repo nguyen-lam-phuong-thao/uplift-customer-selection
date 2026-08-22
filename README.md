@@ -4,18 +4,19 @@
 
 ---
 
-## Training & Evaluation Notebooks
+## Notebooks
 
 These notebooks show the Data Science workflow and the shared framework training/evaluation on the datasets used in this project.
 
 | Dataset | Outcome | Notebook |
 |---|---|---|
+| Criteo | Visit | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training) |
+| Criteo | Conversion | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-conversion-training) |
 | Hillstrom | Visit | [**Hillstrom Uplift — Visit**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-visit) |
 | Hillstrom | Conversion | [**Hillstrom Uplift — Conversion**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-conversion) |
-| Criteo | Visit | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training) |
-| RetailHero | Purchase | [**RetailHero Data Understanding & Cleaning**](notebooks/phase2_retailhero/01_retailhero_data_understanding_and_cleaning.ipynb) |
-| RetailHero | Purchase | [**RetailHero EDA**](notebooks/phase2_retailhero/02_retailhero_eda.ipynb) |
-| RetailHero | Purchase | [**RetailHero Feature Engineering & Training**](notebooks/phase2_retailhero/03_retailhero_feature_engineering.ipynb) |
+| RetailHero | Target | [**RetailHero Data Understanding & Cleaning**](notebooks/phase2_retailhero/01_retailhero_data_understanding_and_cleaning.ipynb) |
+| RetailHero | Target | [**RetailHero EDA**](notebooks/phase2_retailhero/02_retailhero_eda.ipynb) |
+| RetailHero | Target | [**RetailHero Feature Engineering & Training**](https://www.kaggle.com/code/nguynlmphngtho/retailhero-uplift-feature-engineering-training) |
 
 ---
 
@@ -395,5 +396,3 @@ For the full workflow, dataset contracts, prediction artifacts, bootstrap, Selec
 | Document | Description |
 |---|---|
 | [`docs/framework_workflow.md`](docs/framework_workflow.md) | Full workflow, dataset contracts, prediction artifacts, bootstrap, Selection Gate, and locked-test rules. |
-| [`docs/week_3/criteo_train_result.md`](docs/week_3/criteo_train_result.md) | Criteo experiment results, model evaluation, comparison, and findings. |
-| [`docs/week_4/hillstrom_train_result.md`](docs/week_4/hillstrom_train_result.md) | Hillstrom experiment results, model evaluation, comparison, and treatment-effect analysis. |
