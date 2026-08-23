@@ -31,6 +31,8 @@ data/interim/*
 data/processed/*
 !data/processed/.gitkeep
 
+dashboard_data/
+
 # OS and editor files
 .DS_Store
 Thumbs.db

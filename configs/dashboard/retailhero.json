@@ -1,0 +1,28 @@
+{
+  "dataset_key": "retailhero",
+  "display_name": "RetailHero",
+  "entity_id_column": "client_id",
+  "profile_metrics": [
+    {
+      "column": "recency_days",
+      "title": "Recency",
+      "description": "Median days since last purchase",
+      "when_lower": "Selected customers purchased more recently.",
+      "when_higher": "Selected customers purchased less recently."
+    },
+    {
+      "column": "transaction_count",
+      "title": "Purchase Frequency",
+      "description": "Median historical transaction count",
+      "when_lower": "Selected customers purchased less often.",
+      "when_higher": "Selected customers purchased more often."
+    },
+    {
+      "column": "total_spend",
+      "title": "Historical Spend",
+      "description": "Median total historical spend",
+      "when_lower": "Selected customers historically spent less.",
+      "when_higher": "Selected customers historically spent more."
+    }
+  ]
+}
