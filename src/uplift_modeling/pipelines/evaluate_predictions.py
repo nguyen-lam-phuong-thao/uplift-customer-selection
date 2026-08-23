@@ -467,7 +467,8 @@ def evaluate_predictions(
         random_seed=random_seed,
         evaluation_splits=EVALUATION_SPLITS,
     )
-    _, topk_payload = save_topk_policy_evaluation_artifacts(
+
+    topk_json_path, topk_payload = save_topk_policy_evaluation_artifacts(
         policy_frames=policy_frames,
         policy_paths=policy_paths,
         warnings=topk_warnings,
@@ -552,6 +553,7 @@ def evaluate_predictions(
             settings=selection_settings,
             source_manifest_path=manifest_path,
             topk_rows=topk_payload["table_rows"],
+            topk_json_path=topk_json_path,
             model_artifacts=model_artifacts,
             bootstrap_payload=selection_payload,
             bootstrap_json_path=bootstrap_contrast_path,

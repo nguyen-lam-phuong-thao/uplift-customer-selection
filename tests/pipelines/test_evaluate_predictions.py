@@ -335,11 +335,17 @@ def test_bootstrap_and_selection_use_validation_only(
     assert captured_bootstrap["bootstrap_splits"] == ("validation",)
     assert captured_bootstrap["budget_fractions"] == (0.05,)
     assert captured_selection["settings"].split == "validation"
+
+    assert (
+        captured_selection["topk_json_path"]
+        == tmp_path / "topk.json"
+    )
+
     assert [
         row["policy"]
-        for row in captured_selection["bootstrap_payload"][
-            "paired_contrast_rows"
-        ]
+        for row in captured_selection[
+            "bootstrap_payload"
+        ]["paired_contrast_rows"]
     ] == [MODEL_NAME]
 
 

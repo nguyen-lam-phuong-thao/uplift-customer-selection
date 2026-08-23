@@ -182,6 +182,7 @@ def save_model_selection_gate(
     settings: SelectionGateSettings,
     source_manifest_path: Path,
     topk_rows: Sequence[Mapping[str, Any]],
+    topk_json_path: Path,
     model_artifacts: Mapping[str, Any] | None = None,
     bootstrap_payload: Mapping[str, Any] | None = None,
     bootstrap_json_path: Path | None = None,
@@ -265,7 +266,8 @@ def save_model_selection_gate(
         "artifact_type": MODEL_SELECTION_ARTIFACT_NAME,
         "experiment_id": experiment_id,
         "dataset_name": dataset_name,
-        "source_manifest_path": str(source_manifest_path.resolve()),
+        "source_manifest_artifact": source_manifest_path.name,
+        "topk_artifact": topk_json_path.name,
         "bootstrap_artifact": (
             bootstrap_json_path.name
             if bootstrap_json_path is not None
