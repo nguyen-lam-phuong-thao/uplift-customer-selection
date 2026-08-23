@@ -2,6 +2,7 @@ dataset:
   name: retailhero
   prepared_path: data/interim/retailhero/retailhero_prepared.parquet
 schema:
+  entity_id_column: client_id
   treatment_column: treatment_flg
   split_column: split
   feature_columns:

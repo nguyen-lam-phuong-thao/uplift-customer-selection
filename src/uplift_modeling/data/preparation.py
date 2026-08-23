@@ -24,6 +24,7 @@ def build_decision_dataset(
 
     The input dataframe must already contain:
     - row_id
+    - optional entity ID column
     - feature columns
     - treatment column
     - selected outcome column
@@ -31,13 +32,19 @@ def build_decision_dataset(
     """
     validate_supported_outcome(dataset_spec, outcome_column)
 
-    selected_columns = [
-        ROW_ID_COLUMN,
-        *dataset_spec.feature_columns,
-        dataset_spec.treatment_column,
-        outcome_column,
-        dataset_spec.split_column,
-    ]
+    selected_columns = [ROW_ID_COLUMN]
+
+    if dataset_spec.entity_id_column is not None:
+        selected_columns.append(dataset_spec.entity_id_column)
+
+    selected_columns.extend(
+        [
+            *dataset_spec.feature_columns,
+            dataset_spec.treatment_column,
+            outcome_column,
+            dataset_spec.split_column,
+        ]
+    )
 
     missing_columns = sorted(set(selected_columns).difference(dataframe.columns))
     if missing_columns:

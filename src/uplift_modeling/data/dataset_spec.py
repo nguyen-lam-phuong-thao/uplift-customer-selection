@@ -27,13 +27,16 @@ class DatasetSpec:
     split_column: str
     feature_columns: Sequence[str]
     outcome_columns: Sequence[str]
+    entity_id_column: str | None = None
 
     def __post_init__(self) -> None:
         name = _as_non_empty_string(self.name, "dataset.name").strip().lower()
+
         treatment_column = _as_non_empty_string(
             self.treatment_column,
             "schema.treatment_column",
         )
+
         split_column = _as_non_empty_string(
             self.split_column,
             "schema.split_column",
@@ -43,10 +46,28 @@ class DatasetSpec:
             self.feature_columns,
             "schema.feature_columns",
         )
+
         outcome_columns = _as_string_tuple(
             self.outcome_columns,
             "schema.outcome_columns",
         )
+
+        entity_id_column = (
+            _as_non_empty_string(
+                self.entity_id_column,
+                "schema.entity_id_column",
+            )
+            if self.entity_id_column is not None
+            else None
+        )
+
+        if (
+            entity_id_column is not None
+            and entity_id_column in feature_columns
+        ):
+            raise ValueError(
+                "schema.entity_id_column must not be a model feature."
+            )
 
         reserved_columns = {
             ROW_ID_COLUMN,
@@ -78,6 +99,11 @@ class DatasetSpec:
         object.__setattr__(self, "split_column", split_column)
         object.__setattr__(self, "feature_columns", feature_columns)
         object.__setattr__(self, "outcome_columns", outcome_columns)
+        object.__setattr__(
+            self,
+            "entity_id_column",
+            entity_id_column,
+        )
 
 
 @dataclass(frozen=True)
@@ -176,6 +202,7 @@ def load_dataset_config(
     
     spec = DatasetSpec(
         name=dataset["name"],
+        entity_id_column=schema.get("entity_id_column"),
         treatment_column=schema["treatment_column"],
         split_column=schema.get("split_column", "split"),
         feature_columns=schema["feature_columns"],

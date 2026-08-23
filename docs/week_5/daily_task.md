@@ -10,16 +10,16 @@
 
 ## Week 5 Objectives
 
-* [ ] Perform EDA and data understanding for the RetailHero dataset.
-* [ ] Define the RetailHero treatment, outcome, feature, and observation unit.
-* [ ] Define the feature and outcome observation windows for RetailHero.
-* [ ] Perform initial feature engineering and construct the RetailHero decision dataset.
-* [ ] Validate that the RetailHero decision dataset follows the standard decision-data contract.
-* [ ] Integrate RetailHero with the existing framework without changing the shared training and evaluation logic.
-* [ ] Run the first RetailHero training and validation experiment.
-* [ ] Analyze the initial RetailHero model and uplift evaluation results.
-* [ ] Define the preliminary purpose, users, metrics, and information structure of the dashboard.
-* [ ] Create an initial dashboard layout/mockup for presenting uplift modeling results.
+* [x] Perform EDA and data understanding for the RetailHero dataset.
+* [x] Define the RetailHero treatment, outcome, feature, and observation unit.
+* [x] Define the feature and outcome observation windows for RetailHero.
+* [x] Perform initial feature engineering and construct the RetailHero decision dataset.
+* [x] Validate that the RetailHero decision dataset follows the standard decision-data contract.
+* [x] Integrate RetailHero with the existing framework without changing the shared training and evaluation logic.
+* [x] Run the first RetailHero training and validation experiment.
+* [x] Analyze the initial RetailHero model and uplift evaluation results.
+* [x] Define the preliminary purpose, users, metrics, and information structure of the dashboard.
+* [x] Create an initial dashboard layout/mockup for presenting uplift modeling results.
 
 ---
 
@@ -41,24 +41,24 @@
 
 By the end of the RetailHero integration phase, the following should be available:
 
-* [ ] RetailHero data-understanding note.
-* [ ] Observation unit definition.
-* [ ] Treatment and control definition.
-* [ ] Outcome definition.
-* [ ] Feature window definition.
-* [ ] Outcome window definition.
-* [ ] EDA covering data quality and feature distributions.
-* [ ] Missing-value and duplicate analysis.
-* [ ] Potential leakage analysis.
-* [ ] Initial feature-engineering pipeline.
-* [ ] Customer-level feature table.
-* [ ] Standard RetailHero decision dataset.
-* [ ] RetailHero configuration.
-* [ ] At least one completed model run.
-* [ ] Validation predictions.
-* [ ] Model evaluation results.
-* [ ] Initial model comparison.
-* [ ] Initial RetailHero experiment analysis.
+* [x] RetailHero data-understanding note.
+* [x] Observation unit definition.
+* [x] Treatment and control definition.
+* [x] Outcome definition.
+* [x] Feature window definition.
+* [x] Outcome window definition.
+* [x] EDA covering data quality and feature distributions.
+* [x] Missing-value and duplicate analysis.
+* [x] Potential leakage analysis.
+* [x] Initial feature-engineering pipeline.
+* [x] Customer-level feature table.
+* [x] Standard RetailHero decision dataset.
+* [x] RetailHero configuration.
+* [x] At least one completed model run.
+* [x] Validation predictions.
+* [x] Model evaluation results.
+* [x] Initial model comparison.
+* [x] Initial RetailHero experiment analysis.
 
 ---
 

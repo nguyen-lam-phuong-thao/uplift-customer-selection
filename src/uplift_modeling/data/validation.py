@@ -33,6 +33,9 @@ def validate_prepared_dataset_contract(
         *dataset_spec.outcome_columns,
     ]
 
+    if dataset_spec.entity_id_column is not None:
+        required_columns.insert(0,dataset_spec.entity_id_column)
+
     if require_row_id:
         required_columns.insert(0, ROW_ID_COLUMN)
 
@@ -74,11 +77,21 @@ def validate_prepared_dataset_contract(
         for column in required_columns
         if dataframe[column].isna().any()
     ]
+
     if null_columns:
         raise ValueError(
             "Prepared dataset contains null values in required columns: "
             f"{null_columns}. Handle missing values before standardization."
         )
+
+    if dataset_spec.entity_id_column is not None:
+        entity_id_column = dataset_spec.entity_id_column
+
+        if not dataframe[entity_id_column].is_unique:
+            raise ValueError(
+                f"Entity ID column '{entity_id_column}' must contain "
+                "unique values."
+            )
 
     return {
         "is_valid": True,
