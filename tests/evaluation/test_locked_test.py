@@ -33,7 +33,7 @@ def _selection_payload(policy: str = "champion") -> dict:
         "artifact_type": "model_selection_gate",
         "experiment_id": "exp-001",
         "dataset_name": "synthetic",
-        "source_manifest_path": "/tmp/manifest.json",
+        "source_manifest_artifact": "manifest.json",
         "uplift_champion_policy": policy,
         "baseline_policy": "baseline",
         "selection_settings": {
@@ -147,3 +147,24 @@ def test_selection_gate_loader_rejects_wrong_artifact_type(
 
     with pytest.raises(ValueError, match="artifact_type"):
         load_selection_gate_payload(path)
+
+def test_selection_gate_loader_accepts_legacy_source_manifest_path(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "selection.json"
+
+    payload = _selection_payload()
+    payload.pop("source_manifest_artifact")
+    payload["source_manifest_path"] = "/tmp/manifest.json"
+
+    path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    loaded = load_selection_gate_payload(path)
+
+    assert (
+        loaded["source_manifest_path"]
+        == "/tmp/manifest.json"
+    )

@@ -171,7 +171,7 @@ def _write_selection(
     tmp_path: Path,
     manifest_path: Path,
     *,
-    source_manifest_path: Path | None = None,
+    source_manifest_artifact: str | None = None,
     champion_artifact: dict | None = None,
 ) -> Path:
     path = tmp_path / "selection.json"
@@ -182,8 +182,9 @@ def _write_selection(
                 "experiment_id": EXPERIMENT_ID,
                 "dataset_name": DATASET_NAME,
                 "outcome": OUTCOME,
-                "source_manifest_path": str(
-                    (source_manifest_path or manifest_path).resolve()
+                "source_manifest_artifact": (
+                    source_manifest_artifact
+                    or manifest_path.name
                 ),
                 "uplift_champion_policy": CHAMPION_POLICY,
                 "baseline_policy": BASELINE_POLICY,
@@ -307,35 +308,28 @@ def test_locked_test_requires_champion_validation_prediction(tmp_path: Path) -> 
         )
 
 
-def test_locked_test_rejects_selection_from_other_manifest(tmp_path: Path) -> None:
+def test_locked_test_rejects_selection_from_other_manifest(
+    tmp_path: Path,
+) -> None:
     data_path = _write_decision_dataset(tmp_path)
-    dataset_config_path = _write_dataset_config(tmp_path, data_path)
+    dataset_config_path = _write_dataset_config(tmp_path,data_path,)
     modeling_config_path = _write_modeling_config(tmp_path)
 
-    first_dir = tmp_path / "first"
-    second_dir = tmp_path / "second"
-    first_dir.mkdir()
-    second_dir.mkdir()
+    manifest_path = _write_manifest(
+        tmp_path,
+        dataset_config_path,
+        modeling_config_path,
+    )
 
-    first_manifest = _write_manifest(
-        first_dir,
-        dataset_config_path,
-        modeling_config_path,
-    )
-    second_manifest = _write_manifest(
-        second_dir,
-        dataset_config_path,
-        modeling_config_path,
-    )
     selection_path = _write_selection(
         tmp_path,
-        second_manifest,
-        source_manifest_path=first_manifest,
+        manifest_path,
+        source_manifest_artifact="different_experiment_manifest.json",
     )
 
-    with pytest.raises(ValueError, match="does not reference"):
+    with pytest.raises(ValueError,match="does not reference",):
         pipeline.evaluate_locked_test(
-            manifest_path=second_manifest,
+            manifest_path=manifest_path,
             selection_artifact_path=selection_path,
         )
 

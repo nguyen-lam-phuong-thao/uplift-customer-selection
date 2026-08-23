@@ -63,10 +63,23 @@ def load_selection_gate_payload(selection_artifact_path: Path) -> dict[str, Any]
             "Selection Gate artifact_type must be "
             f"'{SELECTION_ARTIFACT_TYPE}'. Received: {artifact_type}"
         )
+    source_manifest_artifact = payload.get("source_manifest_artifact")
     source_manifest_path = payload.get("source_manifest_path")
-    if not isinstance(source_manifest_path, str) or not source_manifest_path:
+
+    has_portable_reference = (
+        isinstance(source_manifest_artifact, str)
+        and bool(source_manifest_artifact)
+    )
+
+    has_legacy_reference = (
+        isinstance(source_manifest_path, str)
+        and bool(source_manifest_path)
+    )
+
+    if not has_portable_reference and not has_legacy_reference:
         raise ValueError(
             "Selection Gate artifact must contain a non-empty "
+            "'source_manifest_artifact' or legacy "
             "'source_manifest_path'."
         )
 

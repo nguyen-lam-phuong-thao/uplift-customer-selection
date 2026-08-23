@@ -105,11 +105,30 @@ def validate_selection_source_manifest(
     manifest_path: Path,
 ) -> None:
     """Validate Selection Gate artifact was built from the supplied manifest."""
-    source_manifest_path = str(selection_payload["source_manifest_path"])
+
+    source_manifest_artifact = selection_payload.get(
+        "source_manifest_artifact"
+    )
+
+    if (
+        isinstance(source_manifest_artifact, str)
+        and source_manifest_artifact
+    ):
+        if source_manifest_artifact != manifest_path.name:
+            raise ValueError(
+                "Selection artifact does not reference the supplied "
+                "experiment manifest."
+            )
+        return
+
+    source_manifest_path = str(
+        selection_payload["source_manifest_path"]
+    )
+
     if Path(source_manifest_path).resolve() != manifest_path.resolve():
         raise ValueError(
-            "Selection artifact does not reference the supplied experiment "
-            "manifest."
+            "Selection artifact does not reference the supplied "
+            "experiment manifest."
         )
 
 
