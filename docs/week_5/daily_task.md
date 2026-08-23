@@ -68,14 +68,14 @@ The dashboard work this week is limited to **initial analysis and design**, not 
 
 By the end of the week, the following should be available:
 
-* [ ] Dashboard purpose and target-user definition.
-* [ ] Main business and analytical questions the dashboard should answer.
-* [ ] List of metrics to present.
-* [ ] List of required charts and visualizations.
-* [ ] Initial dashboard sections and information hierarchy.
-* [ ] Initial filter and interaction requirements.
-* [ ] Initial dashboard layout or wireframe/mockup.
-* [ ] Mapping between framework output artifacts and dashboard visualizations.
+* [X] Dashboard purpose and target-user definition.
+* [X] Main business and analytical questions the dashboard should answer.
+* [X] List of metrics to present.
+* [X] List of required charts and visualizations.
+* [X] Initial dashboard sections and information hierarchy.
+* [X] Initial filter and interaction requirements.
+* [X] Initial dashboard layout or wireframe/mockup.
+* [X] Mapping between framework output artifacts and dashboard visualizations.
 
 Possible dashboard information includes:
 
