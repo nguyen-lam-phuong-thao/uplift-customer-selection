@@ -1,0 +1,76 @@
+dataset:
+  name: retailhero
+  prepared_path: data/interim/retailhero/retailhero_prepared.parquet
+schema:
+  treatment_column: treatment_flg
+  split_column: split
+  feature_columns:
+  - age
+  - gender_F
+  - gender_M
+  - days_since_first_points_use
+  - recency_days
+  - transaction_count
+  - active_days
+  - total_spend
+  - avg_transaction_value
+  - median_transaction_value
+  - avg_basket_quantity
+  - median_basket_quantity
+  - transactions_30d
+  - spend_30d
+  - active_days_30d
+  - avg_shopping_gap_days
+  - recency_gap_ratio
+  - avg_spend_per_history_day
+  - unique_products
+  - unique_level_1_categories
+  - unique_level_2_categories
+  - unique_level_3_categories
+  - unique_level_4_categories
+  - unique_segments
+  - unique_brands
+  - unique_vendors
+  - favorite_product_transactions
+  - favorite_product_share
+  - own_brand_transaction_share
+  - alcohol_transaction_share
+  - unique_stores
+  - favorite_store_transactions
+  - favorite_store_share
+  - loyalty_tenure_days
+  - regular_earning_transactions
+  - express_earning_transactions
+  - regular_redemption_transactions
+  - express_redemption_transactions
+  - redemption_transactions
+  - total_regular_points_received
+  - total_express_points_received
+  - total_regular_points_redeemed
+  - total_express_points_redeemed
+  - regular_earning_transaction_share
+  - express_earning_transaction_share
+  - regular_redemption_transaction_share
+  - express_redemption_transaction_share
+  - any_redemption_transaction_share
+  - redemption_transactions_30d
+  - points_received_30d
+  - points_redeemed_30d
+  - redemption_transaction_share_30d
+  - redeemed_points_to_spend_ratio
+  - redemption_transaction_value_ratio
+  - redemption_basket_quantity_ratio
+  - days_since_last_redemption
+  - avg_redemption_gap_days
+  - express_points_redeemed_per_transaction
+  outcome_columns:
+  - target
+split:
+  assign_if_missing: true
+  train_size: 0.6
+  validation_size: 0.2
+  test_size: 0.2
+  random_state: 42
+outputs:
+  processed_paths:
+    target: data/processed/retailhero/decision_target.parquet
