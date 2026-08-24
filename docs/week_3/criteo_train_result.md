@@ -1,308 +1,345 @@
-## Experiments
+# Criteo Visit vs Conversion Results
 
-### Dataset và mục tiêu thí nghiệm
+## 1. Objective
 
-Dataset được sử dụng là **Criteo Uplift Modeling dataset**. Mục tiêu của thí nghiệm là xây dựng một workflow Uplift Modeling hoàn chỉnh để chọn nhóm khách hàng nên được target trong chiến dịch marketing.
+The purpose of this report is to compare how the same uplift-modeling framework behaves across the two Criteo outcomes:
 
-Dataset có các thành phần chính:
+- `visit`
+- `conversion`
 
-| Thành phần | Ý nghĩa |
+These outcomes represent different customer behaviors and have very different positive rates. The goal is therefore **not to decide which outcome is better**, but to understand how the modeling evidence, model selection, and final targeting decision differ between the two experiments.
+
+Both experiments use the same raw Criteo dataset, the same prepared feature set, the same model family, the same 60/20/20 split structure, the same **Top-5% primary targeting budget**, and the same evaluation workflow:
+
+**Prepared data → train models → validation evaluation → Top-5% uplift-candidate selection → uplift champion → bootstrap replacement gate → locked-test evaluation**
+
+The raw dataset contains **13,979,592 rows** with:
+
+- `f0` to `f11` as anonymized numeric features;
+- `treatment` as the treatment indicator;
+- `visit` and `conversion` as outcomes;
+- `exposure` as a post-treatment variable.
+
+The modeling table keeps only:
+
+**`f0`–`f11` + `treatment` + `visit` + `conversion`**
+
+`exposure` is removed before modeling. The preparation step then creates separate decision datasets for `visit` and `conversion`, adding `row_id` and the train/validation/test split.
+
+For each outcome, the framework trains:
+
+| Model | Role |
 |---|---|
-| `f0` → `f11` | Các đặc trưng khách hàng |
-| `treatment` | Khách hàng có nhận tác động marketing hay không |
-| `visit` | Outcome: khách hàng có truy cập hay không |
-| `conversion` | Outcome: khách hàng có chuyển đổi hay không |
+| `treated_response_lgbm` | Response baseline |
+| `t_learner_lgbm` | Uplift candidate |
+| `x_learner_lgbm` | Uplift candidate |
 
-Bài toán không chỉ là dự đoán ai có khả năng `visit` hoặc `conversion` cao, mà là:
+The model-selection process has two distinct stages.
 
-> Nếu chỉ có ngân sách target một phần khách hàng, model nào chọn được nhóm tạo ra nhiều incremental outcome nhất?
+First, only **T-Learner and X-Learner** are compared at the primary 5% budget using `policy_value`. The stronger of those two becomes the **uplift champion**.
 
----
+Second, that uplift champion is compared with the Response baseline using paired bootstrap. The Response baseline is replaced only when:
 
-### Data Understanding
+```text
+ci_lower > 0
+```
 
-#### Quy mô Treatment và Control
+A narrower 95% confidence interval means the estimated difference is more precise. However, the replacement decision depends on the **location** of the interval, not only its width: the entire interval must lie above zero.
 
-![Treatment and control population sizes](<../week_1/treatment and control poplation.png>)
-
-Biểu đồ cho thấy dữ liệu bị lệch mạnh giữa hai nhóm. Nhóm **Treatment (1)** có khoảng **11.9 triệu dòng**, trong khi nhóm **Control (0)** có khoảng **2.1 triệu dòng**.
-
-| Nhóm | Quy mô xấp xỉ | Nhận xét |
-|---|---:|---|
-| Control (0) | ~2.1M | Nhóm không nhận ads, dùng làm đối chứng |
-| Treatment (1) | ~11.9M | Nhóm nhận ads |
-| Treatment rate | ~85% | Treatment chiếm phần lớn dữ liệu |
-
-Treatment chiếm khoảng 85% dữ liệu, trong khi Control chiếm khoảng 15%. Đây là phân phối treatment quan sát được trong dataset. Control cung cấp nhóm đối chứng để ước lượng phần outcome tăng thêm liên quan đến treatment.
+The resulting deployment policy is fixed on validation before the locked test is opened.
 
 ---
 
-#### Outcome rate theo Treatment và Control
+## 2. Validation Data Sufficiency
 
-![Outcome rates by treatment group](<../week_1/outcome rates by treatment group.png>)
+The prepared dataset is split as follows:
 
-Biểu đồ cho thấy cả hai outcome đều cao hơn ở nhóm Treatment so với Control.
-
-| Outcome | Control rate | Treatment rate | Nhận xét |
-|---|---:|---:|---|
-| `visit` | ~3.8% | ~4.8% | Treatment có visit rate cao hơn Control |
-| `conversion` | ~0.18% | ~0.30% | Treatment có conversion rate cao hơn Control, nhưng conversion rất hiếm |
-
-`conversion` hiếm hơn `visit` rất nhiều. Vì số positive conversion ít, các ước lượng uplift cho outcome này có thể dao động nhiều hơn.
-
-Tuy nhiên, outcome rate trung bình mới chỉ cho thấy sự khác biệt giữa Treatment và Control trên toàn bộ tập khách hàng. Nó chưa trả lời được câu hỏi quan trọng hơn:
-
-> Nên target khách hàng nào trước?
-
-Đó là câu hỏi mà phần Uplift Modeling phía sau cần giải quyết.
-
----
-
-#### Khác biệt feature giữa Treatment và Control
-
-![Feature mean differences](<../week_1/feature mean differences.png>)
-
-Biểu đồ đo chênh lệch trung bình feature giữa hai nhóm: 
-
-    `mean(feature | treatment = 1) - mean(feature | treatment = 0)`.
-
-| Feature | Xu hướng | Nhận xét |
-|---|---:|---|
-| `f9` | Lệch dương mạnh | Treatment group có mean cao hơn Control rõ rệt |
-| `f6` | Lệch âm mạnh | Control group có mean cao hơn Treatment rõ rệt |
-| `f3`, `f0` | Lệch âm vừa | Có khác biệt đáng chú ý |
-| Các feature còn lại | Gần 0 | Hai nhóm tương đối gần nhau |
-
-Điều này cho thấy Treatment và Control không hoàn toàn giống nhau theo mọi feature. Vì vậy, nếu chỉ so outcome trung bình giữa hai nhóm thì có thể bị nhiễu bởi khác biệt sẵn có trong dữ liệu. Model cần học ranking dựa trên feature để tìm nhóm khách hàng có incremental effect cao nhất.
-
----
-
-### Train/Validation/Test split
-
-Dữ liệu sau preprocessing được chia thành train, validation và locked test.
-
-| Split | Vai trò |
-|---|---|
-| Train | Dùng để train model |
-| Validation | Dùng để evaluate, bootstrap và chọn champion |
-| Locked test | Chỉ dùng sau khi champion đã được chọn |
-
-Thống kê validation và locked test:
-
-| Outcome | Validation rows | Validation positive rate | Validation treatment rate | Locked test rows | Locked test positive rate | Locked test treatment rate |
-|---|---:|---:|---:|---:|---:|---:|
-| `conversion` | 2,795,918 | 0.002916 | 0.850000 | 2,795,919 | 0.002917 | 0.850000 |
-| `visit` | 2,795,918 | 0.046992 | 0.850000 | 2,795,919 | 0.046992 | 0.850000 |
-
-Validation và locked test có phân phối gần như giống nhau. Treatment rate đều giữ ở mức khoảng **85%**, đúng với phân phối gốc. Điều này giúp kết quả validation và locked test có thể so sánh được.
-
----
-
-### Model Training
-
-Framework train ba policy chính cho từng outcome.
-
-| Model | Loại model | Vai trò |
-|---|---|---|
-| `treated_response_lgbm` | Response model | Baseline truyền thống, rank khách hàng theo xác suất outcome |
-| `t_learner_lgbm` | Uplift model | Ước lượng uplift bằng chênh lệch giữa treatment model và control model |
-| `x_learner_lgbm` | Uplift model | Ước lượng treatment effect bằng cơ chế imputed treatment effect |
-
-Response model có thêm classification metrics sau training:
-
-| Outcome      | Model                   |  ROC-AUC | Average Precision | Log Loss | Positive rate |
-| ------------ | ----------------------- | -------: | ----------------: | -------: | ------------: |
-| `conversion` | `treated_response_lgbm` | 0.960246 |          0.230235 | 0.011696 |      0.002916 |
-| `visit`      | `treated_response_lgbm` | 0.946741 |          0.520291 | 0.102875 |      0.046992 |
-
-Response Model có khả năng xếp hạng khá tốt những khách hàng dễ xảy ra outcome, với ROC-AUC khoảng **0.96 cho conversion** và **0.95 cho visit**.
-
-Conversion là outcome rất hiếm, chỉ khoảng **0.29%**, nhưng Average Precision đạt **0.23**, cho thấy model vẫn tìm được nhóm khách hàng có khả năng conversion cao hơn đáng kể so với mức trung bình. Với visit, positive rate khoảng **4.7%** và Average Precision đạt **0.52**, nên model nhận diện nhóm dễ visit tốt hơn.
-
-
-Champion selection phía sau dựa trên:
-
-| Mục đích | Metric dùng |
-|---|---|
-| So policy theo budget | `policy_value`, `incremental_outcome` |
-| Kiểm tra độ ổn định | Paired bootstrap confidence interval |
-| Chọn champion | Selection Gate trên validation |
-| Báo cáo cuối | Locked-test policy value, incremental outcome, Qini/AUUC |
-
---- 
-
-### Validation Evaluation: Qini và AUUC
-
-#### <b>Conversion</b>
-
-![Conversion Qini Curve](<../../artifacts/figures/criteo_conversion_t_learner_lgbm_vs_treated_response_lgbm_vs_x_learner_lgbm_run01_qini_curve.png>)
-
-
-| Model | AUUC | Qini | Rank theo Qini |
+| Split | Rows | Fraction | Treatment rate |
 |---|---:|---:|---:|
-| `treated_response_lgbm` | 2,458.966 | 1,088.637 | 1 |
-| `t_learner_lgbm` | 2,197.565 | 827.236 | 2 |
-| `x_learner_lgbm` | 2,099.079 | 728.750 | 3 |
+| Train | 8,387,755 | 60% | 85% |
+| Validation | 2,795,918 | 20% | 85% |
+| Locked test | 2,795,919 | 20% | 85% |
 
+Treatment remains strongly imbalanced in every split because the original Criteo population is approximately **85% Treatment and 15% Control**.
 
-![Conversion Uplift Curve](<../../artifacts/figures/criteo_conversion_t_learner_lgbm_vs_treated_response_lgbm_vs_x_learner_lgbm_run01_uplift_curve.png>)
+The clearest difference between the two outcomes is the number of positive observations available for learning and evaluation.
 
-Với `conversion`, Response Model có AUUC và Qini cao nhất. Điều này cho thấy khi mở rộng dần danh sách khách hàng theo thứ tự score, Response Model tạo ra incremental outcome tích lũy tốt hơn T-Learner và X-Learner trên toàn bộ đường cong.
+| Outcome | Validation rows | Positive rate | Positive observations |
+|---|---:|---:|---:|
+| `visit` | 2,795,918 | 4.6992% | 131,386 |
+| `conversion` | 2,795,918 | 0.2916% | 8,154 |
 
-Tuy nhiên, Uplift Curve tăng mạnh ở phần đầu rồi giảm nhanh. Do conversion rất hiếm, kết quả tại các Top-k nhỏ có thể dao động lớn vì chỉ dựa trên số lượng positive rất ít. Vì vậy, ngoài kết quả tổng thể từ Qini và AUUC, cần xem thêm khoảng tin cậy bootstrap tại các mức Top-k quan trọng để kiểm tra lợi thế của Response Model có ổn định hay không.
+`visit` therefore has more than sixteen times as many positive validation observations as `conversion`.
 
-
+This matters because `conversion` provides much less raw positive-outcome information than `visit`. However, the number of positive observations alone does not determine whether a policy comparison is precise. Precision is assessed directly from the bootstrap confidence interval: a narrower interval indicates a more precise estimate, while the replacement gate still requires the entire interval to lie above zero.
 
 ---
 
-#### <b>Visit</b>
+# 3. Visit Results
+
+## 3.1 Validation Whole-Curve Results
+
+The validation whole-curve metrics are:
+
+| Model | AUUC | Qini |
+|---|---:|---:|
+| `t_learner_lgbm` | **20,868.813** | **8,579.236** |
+| `treated_response_lgbm` | 20,815.119 | 8,525.542 |
+| `x_learner_lgbm` | 20,615.580 | 8,326.002 |
+
+T-Learner has the highest AUUC and Qini for `visit`.
+
+This means T-Learner produces the strongest cumulative ranking when performance is summarized across the full targeting curve.
+
+However, the framework does **not** select the deployment policy from AUUC or Qini. The actual model-selection rule is based on `policy_value` at the configured **5% budget**, followed by the bootstrap replacement gate.
 
 ![Visit Qini Curve](<../../artifacts/figures/criteo_visit_t_learner_lgbm_vs_treated_response_lgbm_vs_x_learner_lgbm_run01_qini_curve.png>)
 
-| Model | AUUC | Qini | Rank theo Qini |
-|---|---:|---:|---:|
-| `t_learner_lgbm` | 20,868.813 | 8,579.236 | 1 |
-| `treated_response_lgbm` | 20,815.119 | 8,525.542 | 2 |
-| `x_learner_lgbm` | 20,615.580 | 8,326.002 | 3 |
-
-
 ![Visit Uplift Curve](<../../artifacts/figures/criteo_visit_t_learner_lgbm_vs_treated_response_lgbm_vs_x_learner_lgbm_run01_uplift_curve.png>)
 
-Với `visit`, T-Learner có AUUC và Qini cao nhất. Điều này cho thấy khi mở rộng dần danh sách khách hàng theo thứ tự score, T-Learner tạo ra incremental outcome tích lũy tốt hơn hai model còn lại.
+---
 
-Uplift Curve cũng cho thấy nhóm khách hàng ở đầu bảng xếp hạng có uplift cao nhất. Khi mở rộng danh sách, uplift rate giảm dần vì model phải lấy thêm những khách hàng có mức phản ứng thấp hơn.
+## 3.2 Visit Top-5% Policy Results
 
-Tuy nhiên, chênh lệch AUUC và Qini giữa ba model không lớn. Vì vậy, cần xem thêm bootstrap tại các mức Top-k quan trọng để kiểm tra lợi thế của T-Learner có đủ ổn định hay không.
+At the primary 5% budget:
+
+| Model | Policy value | Incremental visits |
+|---|---:|---:|
+| `t_learner_lgbm` | 0.045709 | 12,250.205 |
+| `treated_response_lgbm` | 0.043857 | 7,516.300 |
+| `x_learner_lgbm` | **0.045962** | **12,675.340** |
+
+The uplift-candidate step compares only T-Learner and X-Learner.
+
+X-Learner has the higher Top-5% `policy_value`:
+
+- T-Learner: **0.045709**
+- X-Learner: **0.045962**
+
+Therefore:
+
+**Visit uplift champion: `x_learner_lgbm`**
+
+This result is different from the whole-curve ranking. T-Learner has the strongest AUUC and Qini, while X-Learner is stronger at the actual 5% operating point used for model selection.
+
+X-Learner also produces about **5,159 more estimated incremental visits** than the Response baseline at the same validation budget.
 
 ---
 
-### Top-K Policy Evaluation
+## 3.3 Visit Replacement Gate
 
-Top-K evaluation mô phỏng bài toán business: nếu chỉ có ngân sách để target top 1%, 5%, 10%, 20% hoặc 30% khách hàng, policy nào tạo nhiều incremental outcome hơn?
+Selecting X-Learner as the uplift champion does not automatically replace the Response baseline.
 
-#### Conversion
+The framework next compares:
 
-| Budget | Random | T-Learner | Response model | X-Learner | Best policy |
-|---:|---:|---:|---:|---:|---|
-| 1% | 14.992 | 764.132 | 887.518 | 860.220 | Response model |
-| 5% | 44.808 | 1,619.349 | 1,733.937 | 1,734.434 | X-Learner |
-| 10% | 288.049 | 2,017.899 | 2,221.671 | 2,134.577 | Response model |
-| 20% | 595.940 | 2,430.029 | 2,688.386 | 2,607.969 | Response model |
-| 30% | 829.311 | 2,589.204 | 2,912.551 | 2,812.711 | Response model |
+`X-Learner policy value − Response policy value`
 
-Với `conversion`, các model học được đều tốt hơn random targeting. Tuy nhiên, response model thắng ở 4/5 budget. Tại budget 5%, X-Learner nhỉnh hơn response model nhưng chỉ hơn khoảng **0.497 incremental conversions**, tức là rất nhỏ.
+using paired bootstrap at the same 5% budget.
 
-Do đó, chưa thể kết luận X-Learner tốt hơn nếu chỉ nhìn point estimate tại 5%. Cần kiểm tra bootstrap.
+| Uplift champion | Baseline | Mean Δ policy value | 95% CI | Gate |
+|---|---|---:|---:|---|
+| `x_learner_lgbm` | `treated_response_lgbm` | **+0.002111** | **[0.001744, 0.002444]** | **Passed** |
 
----
+The 95% CI is narrow and remains fully above zero, so X-Learner shows a clear and stable advantage over the Response Model. The evidence therefore supports replacing the Response baseline.
 
-#### Visit
+**Recommended Visit policy: `x_learner_lgbm`**
 
-| Budget | Random | T-Learner | Response model | X-Learner | Best policy |
-|---:|---:|---:|---:|---:|---|
-| 1% | 181.444 | 4,808.173 | 1,527.175 | 5,230.658 | X-Learner |
-| 5% | 1,425.756 | 12,250.205 | 7,516.300 | 12,675.340 | X-Learner |
-| 10% | 2,828.405 | 16,791.890 | 14,129.341 | 17,915.712 | X-Learner |
-| 20% | 5,783.854 | 22,383.057 | 21,739.922 | 22,867.744 | X-Learner |
-| 30% | 8,906.365 | 24,737.099 | 24,845.066 | 25,544.834 | X-Learner |
-
-Với `visit`, X-Learner là policy tốt nhất ở toàn bộ budget từ 1% đến 30%.
-
-Tại budget 5%, X-Learner tạo ra **12,675.340 incremental visits**, trong khi response model chỉ đạt **7,516.300**. Chênh lệch khoảng **5,159 incremental visits** trên cùng số lượng khách hàng được chọn.
-
-Đây là bằng chứng mạnh cho thấy X-Learner phù hợp hơn response model khi mục tiêu là tăng visit.
+Only after this decision is fixed is the locked test opened.
 
 ---
 
-### Bootstrap và Selection Gate
+## 3.4 Visit Locked-Test Results
 
-Selection Gate không chọn model bằng point estimate trực tiếp. Framework dùng paired bootstrap để kiểm tra chênh lệch giữa candidate và baseline có ổn định hay không.
+The locked test evaluates the already-selected X-Learner policy on unseen data.
 
-Tiêu chí chọn: `ci_lower > 0`.
+At the primary 5% budget:
 
-Tức là lower bound của confidence interval phải lớn hơn 0.
+| Policy | Policy value | Incremental visits |
+|---|---:|---:|
+| `x_learner_lgbm` | **0.045762** | **12,244.809** |
+| `treated_response_lgbm` | 0.043826 | 7,783.349 |
 
-| Outcome | Candidate | Baseline | Budget | Mean Δ policy value | 95% CI | Gate result |
-|---|---|---|---:|---:|---:|---|
-| `conversion` | `t_learner_lgbm` | `treated_response_lgbm` | 5% | -0.000081 | [-0.000137, -0.000014] | Failed |
-| `conversion` | `x_learner_lgbm` | `treated_response_lgbm` | 5% | -0.000010 | [-0.000049, 0.000031] | Failed |
-| `visit` | `t_learner_lgbm` | `treated_response_lgbm` | 5% | 0.001862 | [0.001561, 0.002193] | Passed |
-| `visit` | `x_learner_lgbm` | `treated_response_lgbm` | 5% | 0.002111 | [0.001744, 0.002444] | Passed |
+The selected X-Learner remains ahead at the same operating point.
 
-Với `conversion`, cả hai uplift learners đều không pass gate. X-Learner dù nhỉnh hơn response model ở Top-K 5% point estimate, nhưng confidence interval vẫn cắt qua 0. Vì vậy, framework không đủ bằng chứng để thay baseline.
+Its Top-5% policy value changes only slightly:
 
-Với `visit`, cả T-Learner và X-Learner đều pass gate. X-Learner có mean delta lớn hơn, nên được chọn làm champion.
+- Validation: **0.045962**
+- Locked test: **0.045762**
 
----
-
-### Champion Selection
-
-| Outcome | Selected champion | Lý do |
-|---|---|---|
-| `conversion` | `treated_response_lgbm` | Không uplift candidate nào pass `ci_lower > 0`, nên giữ baseline |
-| `visit` | `x_learner_lgbm` | Pass bootstrap gate và có mean delta lớn nhất tại budget 5% |
-
-Kết quả này cho thấy framework không tự động chọn uplift model chỉ vì đó là uplift model. Nếu uplift model không chứng minh được lợi ích ổn định, hệ thống giữ lại response model.
-
----
-
-### Locked Test Evaluation
-
-Sau khi chọn champion trên validation, locked test chỉ dùng để đánh giá final champion. Locked test không được dùng để chọn lại model.
-
-#### Conversion champion: `treated_response_lgbm`
-
-| Budget | Selected rows | Policy value | Incremental outcome |
-|---:|---:|---:|---:|
-| 1% | 27,960 | 0.002516 | 1,093.690 |
-| 5% | 139,796 | 0.002885 | 1,900.676 |
-| 10% | 279,592 | 0.002961 | 2,267.996 |
-| 20% | 559,184 | 0.003021 | 2,681.238 |
-| 30% | 838,776 | 0.003058 | 2,934.199 |
-
-Trên locked test, conversion champion đạt **1,900.676 incremental conversions** ở budget 5% và **2,934.199 incremental conversions** ở budget 30%.
-
-| Metric | Validation | Locked test | Difference |
-|---|---:|---:|---:|
-| AUUC | 2,458.966 | 2,479.210 | +20.243 |
-| Qini | 1,088.637 | 1,111.709 | +23.071 |
-| Policy value | 0.003042 | 0.003058 | +0.000016 |
-
-Kết quả test không cho thấy degradation. Policy value gần như giữ nguyên, còn AUUC và Qini tăng nhẹ.
-
----
-
-#### Visit champion: `x_learner_lgbm`
-
-| Budget | Selected rows | Policy value | Incremental outcome |
-|---:|---:|---:|---:|
-| 1% | 27,960 | 0.041429 | 4,847.578 |
-| 5% | 139,796 | 0.045762 | 12,244.809 |
-| 10% | 279,592 | 0.047270 | 17,113.218 |
-| 20% | 559,184 | 0.048011 | 21,895.526 |
-| 30% | 838,776 | 0.048229 | 24,612.025 |
-
-Trên locked test, visit champion đạt **12,244.809 incremental visits** ở budget 5% và **24,612.025 incremental visits** ở budget 30%.
+The whole-curve metrics are somewhat lower on test:
 
 | Metric | Validation | Locked test | Difference |
 |---|---:|---:|---:|
 | AUUC | 20,615.580 | 20,269.087 | -346.493 |
 | Qini | 8,326.002 | 7,979.401 | -346.601 |
-| Policy value | 0.048320 | 0.048229 | -0.000091 |
 
-AUUC và Qini giảm nhẹ trên test, nhưng policy value gần như không đổi. Với mục tiêu deployment theo budget, đây là kết quả ổn định.
+The main budget-based decision nevertheless remains stable.
+
+Bootstrap for the selected X-Learner policy at 5% gives:
+
+- Mean incremental visits: **12,334.584**
+- 95% CI: **[11,321.628, 13,539.809]**
+
+The interval is completely above zero.
+
+The paired locked-test comparison with the Response baseline also remains positive:
+
+- Mean Δ policy value: **+0.001933**
+- 95% CI: **[0.001553, 0.002310]**
+
+The locked test therefore supports the validation decision to deploy X-Learner for `visit`.
 
 ---
 
-### Kết luận
+# 4. Conversion Results
 
-Kết quả cuối cùng của experiment:
+## 4.1 Validation Whole-Curve Results
 
-| Outcome | Champion | Kết luận |
+The validation whole-curve metrics are:
+
+| Model | AUUC | Qini |
+|---|---:|---:|
+| `treated_response_lgbm` | **2,458.966** | **1,088.637** |
+| `t_learner_lgbm` | 2,197.565 | 827.236 |
+| `x_learner_lgbm` | 2,099.079 | 728.750 |
+
+For `conversion`, the Response Model has the strongest AUUC and Qini.
+
+This gives a different whole-curve pattern from `visit`. The conventional Response ranking is strongest across the full conversion targeting curve.
+
+As before, however, whole-curve metrics do not directly determine the final deployment decision. The framework still first selects the stronger uplift candidate at the 5% budget and then tests whether that candidate is strong enough to replace the Response baseline.
+
+![Conversion Qini Curve](<../../artifacts/figures/criteo_conversion_t_learner_lgbm_vs_treated_response_lgbm_vs_x_learner_lgbm_run01_qini_curve.png>)
+
+![Conversion Uplift Curve](<../../artifacts/figures/criteo_conversion_t_learner_lgbm_vs_treated_response_lgbm_vs_x_learner_lgbm_run01_uplift_curve.png>)
+
+---
+
+## 4.2 Conversion Top-5% Policy Results
+
+At the primary 5% budget:
+
+| Model | Policy value | Incremental conversions |
+|---|---:|---:|
+| `t_learner_lgbm` | 0.002731 | 1,619.349 |
+| `treated_response_lgbm` | **0.002814** | 1,733.937 |
+| `x_learner_lgbm` | 0.002803 | **1,734.434** |
+
+This table shows why the framework must keep its selection metric explicit.
+
+X-Learner has the highest estimated incremental conversions by only about **0.497 conversions** compared with the Response Model. However, the framework's selection and replacement metric is `policy_value`, and the Response Model has the higher Top-5% policy value:
+
+- Response Model: **0.002814**
+- X-Learner: **0.002803**
+
+The uplift-candidate step still compares only T-Learner and X-Learner:
+
+- T-Learner policy value: **0.002731**
+- X-Learner policy value: **0.002803**
+
+Therefore:
+
+**Conversion uplift champion: `x_learner_lgbm`**
+
+This means X-Learner is the stronger **uplift candidate**. It does not mean that it has already beaten the Response baseline.
+
+---
+
+## 4.3 Conversion Replacement Gate
+
+The selected X-Learner is then compared with the Response baseline using paired bootstrap at 5%.
+
+| Uplift champion | Baseline | Mean Δ policy value | 95% CI | Gate |
+|---|---|---:|---:|---|
+| `x_learner_lgbm` | `treated_response_lgbm` | -0.000010 | [-0.000049, 0.000031] | **Failed** |
+
+The mean difference is almost zero and the confidence interval is quite narrow, but it still crosses zero.
+
+The 95% CI is narrow but crosses zero, indicating that X-Learner and the Response Model have very similar policy values at the 5% budget. Therefore, there is not enough evidence to replace the Response Model.
+
+**Recommended Conversion policy: `treated_response_lgbm`**
+
+The distinction is important:
+
+- **Uplift champion:** `x_learner_lgbm`
+- **Recommended deployment policy:** `treated_response_lgbm`
+
+---
+
+## 4.4 Conversion Locked-Test Results
+
+The locked test evaluates the selected Response policy on unseen data.
+
+At the primary 5% budget:
+
+| Policy | Policy value | Incremental conversions |
+|---|---:|---:|
+| `treated_response_lgbm` | **0.002885** | **1,900.676** |
+| `x_learner_lgbm` | 0.002873 | 1,862.896 |
+
+The Response baseline remains slightly ahead on the metric used by the framework.
+
+Its Top-5% policy value is also stable relative to validation:
+
+- Validation: **0.002814**
+- Locked test: **0.002885**
+
+The whole-curve metrics improve slightly:
+
+| Metric | Validation | Locked test | Difference |
+|---|---:|---:|---:|
+| AUUC | 2,458.966 | 2,479.210 | +20.243 |
+| Qini | 1,088.637 | 1,111.709 | +23.071 |
+
+Bootstrap for the selected Response policy at 5% gives:
+
+- Mean incremental conversions: **1,877.574**
+- 95% CI: **[1,408.160, 2,253.077]**
+
+The interval remains fully above zero, showing that the selected Response policy produces positive incremental conversions on unseen data.
+
+The paired locked-test comparison between X-Learner and the Response baseline gives:
+
+- Mean Δ policy value: **-0.000013**
+- 95% CI: **[-0.000054, 0.000034]**
+
+This interval crosses zero, so the locked test does not show a reliable X-Learner advantage over Response.
+
+---
+
+# 5. Visit vs Conversion
+
+The two outcomes use the same data preparation and the same model-selection workflow, but the evidence leads to different deployment decisions.
+
+| Comparison | Visit | Conversion |
 |---|---|---|
-| `conversion` | `treated_response_lgbm` | Conversion quá hiếm, uplift learners không vượt baseline ổn định, nên giữ response model |
-| `visit` | `x_learner_lgbm` | X-Learner thắng Top-K ở mọi budget, pass bootstrap gate, và giữ policy value ổn định trên locked test |
+| Validation rows | 2,795,918 | 2,795,918 |
+| Positive rate | 4.6992% | 0.2916% |
+| Positive observations | 131,386 | 8,154 |
+| Whole-curve leader | T-Learner | Response Model |
+| Uplift champion at Top 5% | X-Learner | X-Learner |
+| Uplift champion beats Response on validation policy value? | Yes | No |
+| Replacement gate | **Passed** | **Failed** |
+| Recommended policy | **X-Learner** | **Response Model** |
+| Locked-test selected-policy incremental CI | Above zero | Above zero |
+| Locked-test paired contrast vs Response | Positive | Crosses zero |
 
-Kết quả cho thấy thiết kế framework ảnh hưởng trực tiếp đến cách chọn model. Model không được chọn chỉ vì có ROC-AUC, Qini hay AUUC cao nhất, mà phải tạo ra incremental outcome tốt tại các mức budget thực tế và giữ được lợi thế qua bootstrap.
+The most important difference is not simply the name of the uplift champion.
 
-Nhờ đó, framework giúp tránh chọn model theo một metric đơn lẻ và đưa ra quyết định phù hợp hơn với mục tiêu triển khai. Champion cuối cùng là model tạo ra giá trị tăng thêm tốt và ổn định nhất, sau đó mới được xác nhận trên locked test.
+For `visit`, X-Learner has a clear Top-5% policy-value advantage over the Response baseline, and that advantage remains fully above zero under paired bootstrap. The framework therefore replaces the baseline.
+
+For `conversion`, X-Learner is still the stronger uplift candidate when compared with T-Learner, but its Top-5% policy value is slightly below the Response Model and the paired-bootstrap interval crosses zero. The framework therefore keeps the baseline.
+
+`conversion` does have far fewer positive observations than `visit`, but the bootstrap result shows that the replacement failure should not be described simply as a precision problem. The validation interval is narrow and centered around zero, suggesting that X-Learner and Response have genuinely very similar policy values at the configured decision point.
+
+
+---
+
+# 6. Conclusion
+
+The Criteo experiment answers the main question of whether uplift modeling can improve customer targeting over a conventional Response Model under the same budget. The results show that the answer depends on the outcome: X-Learner provides a clear improvement for `visit`, while no uplift model shows enough advantage to replace the Response baseline for `conversion`.
+
+The next step is to test the framework on additional datasets with different scales and data characteristics. Comparing the results across datasets can help identify which data conditions are more suitable for uplift modeling and when it provides a meaningful advantage over conventional Response targeting.
+
+
+

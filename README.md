@@ -1,398 +1,104 @@
 # Customer Selection with Uplift Modeling
 
-> A reusable framework for customer selection with uplift modeling, from a prepared dataset to model selection and locked-test evaluation.
+> A customer-targeting data science project that combines dataset-specific analysis with a shared uplift-modeling evaluation framework.
 
----
+## Demo Dashboard
 
-## Notebooks
+![Customer Targeting Dashboard](docs/week_6/demo_gift.gif)
 
-These notebooks show the Data Science workflow and the shared framework training/evaluation on the datasets used in this project.
-
-| Dataset | Outcome | Notebook |
-|---|---|---|
-| Criteo | Visit | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training) |
-| Criteo | Conversion | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-conversion-training) |
-| Hillstrom | Visit | [**Hillstrom Uplift — Visit**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-visit) |
-| Hillstrom | Conversion | [**Hillstrom Uplift — Conversion**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-conversion) |
-| RetailHero | Target | [**RetailHero Data Understanding & Cleaning**](notebooks/phase2_retailhero/01_retailhero_data_understanding_and_cleaning.ipynb) |
-| RetailHero | Target | [**RetailHero EDA**](notebooks/phase2_retailhero/02_retailhero_eda.ipynb) |
-| RetailHero | Target | [**RetailHero Feature Engineering & Training**](https://www.kaggle.com/code/nguynlmphngtho/retailhero-uplift-feature-engineering-training) |
-
----
-
-## Experiment Reports
-
-- [**Criteo Training Results**](docs/week_3/criteo_train_result.md)
-- [**Hillstrom Training Results**](docs/week_4/hillstrom_train_result.md)
-
-
----
-
-## Table of Contents
-
-- [Training & Evaluation Notebooks](#training--evaluation-notebooks)
-- [Project Overview](#project-overview)
-- [Purpose](#purpose)
-- [Framework Boundary](#framework-boundary)
-- [Input Dataset](#input-dataset)
-- [Current Supported Models](#current-supported-models)
-- [Uplift Selection and Replacement Gate](#uplift-selection-and-replacement-gate)
-- [Training Example](#training-example)
-- [Repository Structure](#repository-structure)
-- [Documentation](#documentation)
+The final dashboard turns model outputs into a targeting decision: choose a campaign budget, view the recommended strategy, expected incremental outcome, comparison with the Response baseline, and export the ranked customer list.
 
 ---
 
 ## Project Overview
 
-This project provides a reusable framework for **customer selection with uplift modeling**.
+This project studies **when uplift modeling provides a useful targeting advantage over conventional Response modeling** across three datasets: **Criteo, Hillstrom, and RetailHero**.
 
-In a business setting, the framework can be used as a reference workflow when a team wants to evaluate and propose which customers should be prioritized for a marketing campaign, promotion, or other treatment.
+The work is not only about testing a reusable framework. Each dataset requires its own Data Science process before modeling:
 
-Instead of only predicting who is likely to produce an outcome, uplift modeling focuses on identifying customers whose behavior is more likely to change **because of the treatment**.
+- Data understanding, cleaning, and EDA
+- Treatment and outcome definition
+- Leakage checks and feature engineering
+- Analysis of the data conditions behind the modeling results.
 
-The framework can be reused across datasets, but each dataset still requires its own preparation before entering the framework.
-
----
-
-## Purpose
-
-The goal of this project is to provide a reproducible workflow for uplift-modeling experiments, especially for customer selection.
-
-The framework helps:
-
-| Capability | Description |
-|---|---|
-| Candidate training | Train candidate models on the same dataset and splits. |
-| Prediction alignment | Keep predictions aligned with the correct observations. |
-| Policy evaluation | Evaluate policies under the same conditions. |
-| Statistical comparison | Compare candidates with paired bootstrap. |
-| Uplift selection | Select the best uplift model using validation Top-K performance. |
-| Replacement gate | Test whether the selected uplift model reliably outperforms the Response baseline. |
-| Test isolation | Keep the test split independent for final evaluation. |
-| Experiment traceability | Preserve artifacts and model provenance so experiment results can be traced. |
-
-The final outputs can be used to evaluate models and support a ranked customer recommendation based on the selected policy.
+After the data is modeling-ready, the same shared framework is used to train and evaluate targeting policies consistently.
 
 ---
 
-## Framework Boundary
+## Datasets and Results
 
-The framework starts from a **prepared dataset**.
+| Dataset | Data setting | Primary budget | Recommended policy | What the experiment showed |
+|---|---|---:|---|---|
+| **Criteo** | 13.98M rows, ~85/15 Treatment-Control, `visit` and `conversion` | Top 5% | **Visit: X-Learner** · **Conversion: Response** | The same data can lead to different targeting decisions for different outcomes. |
+| **Hillstrom** | Mens/Womens email experiments, near-balanced Treatment-Control, `visit` and `conversion` | Top 20% | **Response** for all four experiments | Uplift champions were found, but none had enough validation evidence to replace the baseline. |
+| **RetailHero** | 200,039 customers, randomized near-balanced campaign, transaction history summarized into 58 leakage-safe features | Top 5% | **T-Learner** | T-Learner passed the validation replacement gate; its locked-test point estimate remained higher, although the paired confidence interval included zero. |
 
-### Outside the framework
-
-The following steps are outside the framework:
-
-- Raw data processing.
-- EDA.
-- Feature engineering.
-- Treatment/control definition.
-- Outcome definition.
-- Leakage decisions.
-- Dataset-specific encoding or transformation.
-
-### Inside the framework
-
-```text
-Prepared dataset
-        ↓
-Standardize to a common decision dataset
-        ↓
-Add internal row_id
-        ↓
-Create train / validation / test split
-        ↓
-Train Response + uplift candidates
-        ↓
-Validation evaluation
-        ↓
-Select uplift champion
-        ↓
-Replacement gate vs Response baseline
-        ↓
-Locked-test evaluation of uplift champion + baseline
-```
-
-`row_id` is an internal technical identifier created by the framework to keep predictions and evaluation rows aligned across models.
-
-Splits are created deterministically. Validation is used for uplift selection and the replacement gate; test is used only after those validation decisions have been frozen.
+Across the completed experiments, uplift modeling does **not** win in every dataset or outcome. The results therefore emphasize both the modeling method **and the characteristics of the data being modeled**. Because the datasets differ in several ways at once, the project does not claim that any single data characteristic causes the different results.
 
 ---
 
-## Input Dataset
-
-To use the framework with a new dataset, the user needs to provide:
-
-1. A **prepared Parquet dataset**.
-2. A **dataset config** describing which columns are features, treatment, and outcomes.
-
-The prepared dataset should already be modeling-ready:
+## Project Workflow
 
 ```text
-feature columns
-treatment
-outcome column(s)
+Dataset-specific Data Science
+raw data
+   ↓
+cleaning + EDA
+   ↓
+treatment / outcome definition
+   ↓
+feature engineering + leakage checks
+   ↓
+prepared modeling dataset
+
+                 ↓
+
+Shared uplift framework
+train Response + T-Learner + X-Learner
+   ↓
+validation policy evaluation
+   ↓
+select uplift champion at the primary Top-K budget
+   ↓
+paired-bootstrap replacement gate vs Response
+   ↓
+freeze validation decision
+   ↓
+locked-test evaluation
+   ↓
+ranked customers / dashboard
 ```
 
-For example:
+The framework begins **after dataset-specific preparation is complete**. Validation is used for model selection and the replacement gate; the locked test only evaluates the already-frozen policies.
 
-| age | tenure | past_purchase_count | treatment | conversion |
-|---:|---:|---:|---:|---:|
-| 32 | 12 | 5 | 1 | 1 |
-| 45 | 30 | 10 | 0 | 0 |
-| 27 | 4 | 2 | 1 | 0 |
+Supported policies are `treated_response_lgbm`, `t_learner_lgbm`, and `x_learner_lgbm`, with `random_targeting` used only as an evaluation benchmark. Default targeting budgets are **1%, 5%, 10%, 20%, and 30%**.
 
-Here:
-
-- `age`, `tenure`, `past_purchase_count` are model features.
-- `treatment = 1` means treated and `treatment = 0` means control.
-- `conversion` is the observed outcome.
-
-The framework does not perform feature engineering or decide which columns are safe to use. Those decisions must already be completed when the prepared dataset is created.
-
-### Dataset config
-
-The dataset config tells the framework how to interpret the prepared file.
-
-Example:
-
-```yaml
-dataset:
-  name: my_campaign
-  prepared_path: data/interim/my_campaign/prepared.parquet
-
-schema:
-  treatment_column: treatment
-  split_column: split
-
-  feature_columns:
-    - age
-    - tenure
-    - past_purchase_count
-
-  outcome_columns:
-    - conversion
-
-split:
-  assign_if_missing: true
-  train_size: 0.6
-  validation_size: 0.2
-  test_size: 0.2
-  random_state: 42
-
-outputs:
-  processed_paths:
-    conversion: data/processed/my_campaign/decision_conversion.parquet
-```
-
-The input dataset does not need to contain `row_id` or `split` when the framework is configured to create them.
-
-### Example: Criteo
-
-The prepared Criteo dataset contains:
-
-```text
-f0
-f1
-...
-f11
-treatment
-visit
-conversion
-```
-
-From this single prepared dataset, the framework creates one decision dataset for each outcome:
-
-```text
-visit:
-row_id
-f0 ... f11
-treatment
-visit
-split
-```
-
-```text
-conversion:
-row_id
-f0 ... f11
-treatment
-conversion
-split
-```
-
-### Example: Hillstrom
-
-Hillstrom originally contains three campaign groups:
-
-```text
-No E-Mail
-Mens E-Mail
-Womens E-Mail
-```
-
-Because the framework uses binary treatment, preparation creates two separate experiments:
-
-```text
-hillstrom_mens:
-No E-Mail   = 0
-Mens E-Mail = 1
-```
-
-```text
-hillstrom_womens:
-No E-Mail     = 0
-Womens E-Mail = 1
-```
-
-Categorical variables are encoded before entering the framework.
-
-A prepared Hillstrom dataset therefore has the same logical structure as Criteo:
-
-```text
-customer features
-treatment
-visit
-conversion
-```
-
-The framework then standardizes it into separate `visit` and `conversion` decision datasets.
-
-In short:
-
-```text
-User prepares:
-
-features + treatment + outcome(s)
-            ↓
-        dataset config
-            ↓
-Framework creates:
-
-row_id + features + treatment + one outcome + split
-```
+For the full framework contract, artifacts, selection rules, provenance, and locked-test behavior, see [`docs/framework_workflow.md`](docs/framework_workflow.md).
 
 ---
 
-## Current Supported Models
+## Notebooks
 
-The framework currently supports:
+| Dataset | Outcome / Stage | Notebook |
+|---|---|---|
+| Criteo | Visit | [**Criteo Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-training) |
+| Criteo | Conversion | [**Criteo Uplift Conversion Training**](https://www.kaggle.com/code/nguynlmphngtho/criteo-uplift-conversion-training) |
+| Hillstrom | Visit | [**Hillstrom Uplift — Visit**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-visit) |
+| Hillstrom | Conversion | [**Hillstrom Uplift — Conversion**](https://www.kaggle.com/code/nguynlmphngtho/hillstrom-uplift-conversion) |
+| RetailHero | Data Understanding & Cleaning | [**Notebook**](notebooks/phase2_retailhero/01_retailhero_data_understanding_and_cleaning.ipynb) |
+| RetailHero | EDA | [**Notebook**](notebooks/phase2_retailhero/02_retailhero_eda.ipynb) |
+| RetailHero | Feature Engineering & Training | [**RetailHero Uplift Training**](https://www.kaggle.com/code/nguynlmphngtho/retailhero-uplift-feature-engineering-training) |
 
-| Model | Role |
-|---|---|
-| `treated_response_lgbm` | Traditional Response baseline |
-| `t_learner_lgbm` | Uplift candidate |
-| `x_learner_lgbm` | Uplift candidate |
+## Experiment Reports
 
-`treated_response_lgbm` ranks customers by predicted outcome response and is used as the baseline for the replacement gate.
+- [**Criteo — Visit vs Conversion**](docs/week_3/criteo_train_result.md)
+- [**Hillstrom — Visit vs Conversion**](docs/week_4/hillstrom_train_result.md)
+- [**RetailHero — End-to-End Uplift Modeling**](docs/week_6/retailhero_report.md)
 
-`T-Learner` and `X-Learner` estimate treatment effect and participate in uplift-champion selection.
-
-`random_targeting` is used only as an evaluation benchmark and cannot become champion.
-
----
-
-## Uplift Selection and Replacement Gate
-
-Both decisions use **validation data only**.
-
-### Uplift selection
-
-Only uplift models participate in uplift-champion selection.
-
-| Step | Rule |
-|---:|---|
-| 1 | Evaluate the configured uplift candidates at the primary validation Top-K operating point. |
-| 2 | Select the candidate with the largest configured primary metric. |
-| 3 | Break exact ties deterministically by policy name. |
-| 4 | Save the result as `uplift_champion_policy`. |
-
-`treated_response_lgbm` is not allowed to become the uplift champion.
-
-### Replacement gate
-
-After the uplift champion is fixed, compare it with `treated_response_lgbm` using the paired bootstrap contrast at the same primary operating point.
-
-| Result | Meaning |
-|---|---|
-| `ci_lower > 0` | `replacement_gate_passed = true`: there is stable evidence that the uplift champion outperforms the Response baseline. |
-| `ci_lower <= 0` | `replacement_gate_passed = false`: the Response baseline remains the recommended deployment policy. |
-
-The framework keeps three separate concepts:
-
-- `uplift_champion_policy`: the best uplift model.
-- `replacement_gate_passed`: whether the uplift champion has enough evidence to replace the Response baseline.
-- `recommended_deployment_policy`: the uplift champion when the gate passes, otherwise the Response baseline.
-
-### Default Top-K budgets
-
-| Budget |
-|---:|
-| 1% |
-| 5% |
-| 10% |
-| 20% |
-| 30% |
-
-> **Test isolation:** The locked test does not select models or change the replacement-gate decision. It evaluates the validation-selected uplift champion and the Response baseline as frozen policies.
+The reports contain the detailed analysis and statistical results; this README only provides the project-level overview.
 
 ---
 
-## Training Example
+## Main Takeaway
 
-Run the full validation experiment with:
-
-```bash
-python -m uplift_modeling.pipelines.run_experiment \
-  --dataset-config <dataset-config> \
-  --modeling-config <modeling-config> \
-  --experiment-id <experiment-id> \
-  --outcome <outcome>
-```
-
-Example:
-
-```bash
-python -m uplift_modeling.pipelines.run_experiment \
-  --dataset-config configs/datasets/criteo.yaml \
-  --modeling-config configs/modeling/uplift_lgbm.yaml \
-  --experiment-id criteo-visit-001 \
-  --outcome visit
-```
-
-Locked-test evaluation is run separately after validation decisions are frozen.
-
----
-
-## Repository Structure
-
-```text
-.
-├── configs/
-├── contracts/
-├── data/
-├── docs/
-├── notebooks/
-├── src/uplift_modeling/
-│   ├── artifacts/
-│   ├── data/
-│   ├── evaluation/
-│   ├── models/
-│   ├── pipelines/
-│   ├── tracking/
-│   └── utils/
-├── tests/
-├── requirements.txt
-└── README.md
-```
-
----
-
-## Documentation
-
-For the full workflow, dataset contracts, prediction artifacts, bootstrap, Selection Gate, and locked-test rules, see:
-
-| Document | Description |
-|---|---|
-| [`docs/framework_workflow.md`](docs/framework_workflow.md) | Full workflow, dataset contracts, prediction artifacts, bootstrap, Selection Gate, and locked-test rules. |
+There is **no universal uplift winner** across the three datasets. The project uses dataset-specific analysis together with a common evaluation framework to decide whether an uplift policy provides enough evidence to improve the actual customer-selection decision over a conventional Response strategy.

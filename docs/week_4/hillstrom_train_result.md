@@ -2,16 +2,17 @@
 
 ## 1. Objective
 
-This report compares the results of the two Hillstrom outcomes:
+The purpose of this report is to test whether uplift-based targeting can improve on a conventional Response Model in the Hillstrom campaign, and whether the result changes between the two outcomes:
 
 - `visit`
 - `conversion`
 
-Both outcomes use the same prepared Hillstrom data structure, the same model set, the same Top-20% targeting rule, and the same evaluation workflow:
+Hillstrom contains three campaign groups: `No E-Mail`, `Mens E-Mail`, and `Womens E-Mail`. Because the framework uses binary treatment, the analysis is run as two separate experiments:
 
-**Prepared data → train models → validation evaluation → Top-20 selection → uplift champion → bootstrap replacement gate → locked-test evaluation**
+- **Mens:** `No E-Mail = 0`, `Mens E-Mail = 1`
+- **Womens:** `No E-Mail = 0`, `Womens E-Mail = 1`
 
-For each campaign, the framework trains:
+Each experiment uses the same model set and the same **Top-20% primary targeting budget**:
 
 | Model | Role |
 |---|---|
@@ -19,21 +20,25 @@ For each campaign, the framework trains:
 | `t_learner_lgbm` | Uplift candidate |
 | `x_learner_lgbm` | Uplift candidate |
 
-The uplift champion is selected only between T-Learner and X-Learner. The selected uplift model is then compared with the Response baseline using paired bootstrap.
+The evaluation workflow is:
 
-The baseline is replaced only when:
+**Prepared data → train models → validation evaluation → Top-20% uplift selection → uplift champion → bootstrap replacement gate → locked-test evaluation**
+
+Only T-Learner and X-Learner compete for the uplift-champion position. The selected uplift model is then compared with the Response baseline using paired bootstrap.
+
+The Response baseline is replaced only when:
 
 ```text
 ci_lower > 0
 ```
 
-The purpose of this comparison is not to decide whether `visit` or `conversion` is a "better" outcome. They measure different customer behaviors. The goal is to understand how the modeling and evaluation results differ between a relatively common outcome and a much rarer one.
+The deployment decision is fixed on validation before the locked test is opened.
 
 ---
 
 ## 2. Validation Data Sufficiency
 
-The clearest difference between the two outcomes appears before model comparison.
+The main difference between `visit` and `conversion` is the amount of positive-outcome information available for evaluation.
 
 | Experiment | Outcome | Validation rows | Positive rate | Positive observations |
 |---|---|---:|---:|---:|
@@ -42,30 +47,15 @@ The clearest difference between the two outcomes appears before model comparison
 | Mens | `conversion` | 8,523 | 0.915% | 78 |
 | Womens | `conversion` | 8,539 | 0.726% | 62 |
 
-`visit` has more than one thousand positive observations in each validation set, while `conversion` has fewer than one hundred.
+`visit` has more than 1,100 positive observations in each validation set, while `conversion` has only 62–78.
 
-This matters because the framework evaluates only the selected Top-20% group at the main business decision point. For `conversion`, that means the policy estimate is based on a much smaller number of positive outcomes.
-
-As a result, conversion estimates are expected to be less stable, especially near the beginning of the uplift curve where the selected population is still small.
+Conversion therefore provides much less outcome signal at the Top-20% decision point, so small differences between policies should be interpreted more cautiously.
 
 ---
 
 # 3. Visit Results
 
-## 3.1 Response Model Diagnostics
-
-The Response Model shows:
-
-| Experiment | ROC-AUC | Average Precision |
-|---|---:|---:|
-| Mens Visit | 0.628 | 0.2093 |
-| Womens Visit | 0.621 | 0.1825 |
-
-These metrics are used only as model diagnostics. They do not decide the final targeting policy.
-
----
-
-## 3.2 Validation Whole-Curve Results
+## 3.1 Validation Whole-Curve Results
 
 ### Mens Visit
 
@@ -75,9 +65,7 @@ These metrics are used only as model diagnostics. They do not decide the final t
 | `treated_response_lgbm` | **175.328** | **11.881** |
 | `x_learner_lgbm` | 161.625 | -1.822 |
 
-For Mens Visit, the Response Model has the strongest whole-curve result.
-
-Both uplift models have negative Qini values, which means their full-population ranking is weaker than the Response ranking in this validation sample.
+The Response Model has the strongest whole-curve result for Mens Visit. Both uplift learners have negative Qini values, indicating weaker overall ranking performance than the Response baseline on this validation sample.
 
 ![Mens Visit Qini Curve](../../artifacts/figures/hillstrom_mens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_qini_curve.png)
 
@@ -91,17 +79,19 @@ Both uplift models have negative Qini values, which means their full-population 
 | `treated_response_lgbm` | 118.839 | 21.741 |
 | `x_learner_lgbm` | **134.315** | **37.217** |
 
-For Womens Visit, X-Learner has the strongest AUUC and Qini.
-
-This is different from Mens Visit, where the Response Model leads across the full curve. Therefore, the two email campaigns do not produce the same ranking pattern even when the outcome is the same.
+Womens Visit shows a different pattern. X-Learner has the strongest AUUC and Qini, while T-Learner is also above the Response Model.
 
 ![Womens Visit Qini Curve](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_qini_curve.png)
 
 ![Womens Visit Uplift Curve](../../artifacts/figures/hillstrom_womens_visit_visit_t_learner_lgbm_vs_visit_treated_response_lgbm_vs_visit_x_learner_lgbm_run04_uplift_curve.png)
 
+The two campaigns therefore do not produce the same full-population ranking pattern: Response leads Mens Visit, while X-Learner leads Womens Visit.
+
+However, whole-curve metrics are not used directly for model selection in this framework. The deployment decision is based on policy_value at the configured Top-20% targeting budget, so the next step is to compare the models at that operating point.
+
 ---
 
-## 3.3 Visit Top-20% Policy Results
+## 3.2 Visit Top-20% Policy Results
 
 | Experiment | Model | Incremental visits | Policy value |
 |---|---|---:|---:|
@@ -112,62 +102,54 @@ This is different from Mens Visit, where the Response Model leads across the ful
 | Womens | `treated_response_lgbm` | **166.871** | 0.123486 |
 | Womens | `x_learner_lgbm` | 136.673 | **0.123773** |
 
-For Mens Visit, the Response Model has the highest Top-20% policy value.
+At the Top-20% decision point, X-Learner has a higher `policy_value` than T-Learner in both experiments.
 
-For Womens Visit, X-Learner has the highest policy value, but the difference from the Response Model is very small.
+Therefore:
 
-The uplift-candidate step compares only T-Learner and X-Learner. X-Learner therefore becomes the uplift champion for both Visit experiments.
+**Visit uplift champion: `x_learner_lgbm` for both Mens and Womens.**
+
+For Mens, the Response baseline still has the highest policy value overall. For Womens, X-Learner is only slightly above Response.
 
 ---
 
-## 3.4 Visit Replacement Gate
+## 3.3 Visit Replacement Gate
 
 | Experiment | Uplift champion | Mean Δ policy value vs Response | 95% CI | Gate | Recommended policy |
 |---|---|---:|---:|---|---|
 | Mens Visit | `x_learner_lgbm` | -0.000929 | [-0.008207, 0.005315] | Failed | `treated_response_lgbm` |
 | Womens Visit | `x_learner_lgbm` | +0.000305 | [-0.007136, 0.008921] | Failed | `treated_response_lgbm` |
 
-Neither confidence interval lies completely above zero.
+Both 95% CIs cross zero. For Mens Visit, the mean difference is slightly negative, while for Womens Visit it is slightly positive, but neither result is statistically strong enough to show that X-Learner consistently outperforms the Response Model. Therefore, the replacement gate fails for both campaigns and the Response Model remains the recommended policy.
 
-For Mens Visit, the mean difference is slightly negative. For Womens Visit, the mean difference is slightly positive, but the interval still crosses zero.
-
-The validation evidence is therefore not strong enough to replace the Response baseline in either Visit experiment.
+**Recommended Visit policy: `treated_response_lgbm` for both Mens and Womens.**
 
 ---
 
-## 3.5 Visit Locked-Test Results
+## 3.4 Visit Locked-Test Results
 
-The selected Response policies are then evaluated on the locked test.
+The locked test evaluates the already-frozen X-Learner and Response policies on unseen data.
 
-| Experiment | Test Qini | Top-20% incremental visits | Bootstrap mean | 95% CI |
-|---|---:|---:|---:|---:|
-| Mens Visit | 5.816 | 164.616 | 161.490 | **[104.522, 233.457]** |
-| Womens Visit | 13.304 | 130.000 | 135.916 | **[84.528, 192.438]** |
+| Experiment | Policy | Top-20% incremental visits | Policy value | Test Qini |
+|---|---|---:|---:|---:|
+| Mens | `treated_response_lgbm` | **164.616** | **0.1234** | **5.816** |
+| Mens | `x_learner_lgbm` | 148.790 | 0.1223 | 2.030 |
+| Womens | `treated_response_lgbm` | **130.000** | 0.1214 | 13.304 |
+| Womens | `x_learner_lgbm` | 116.927 | 0.1214 | **28.508** |
 
-Both confidence intervals are completely above zero.
+At the primary Top-20% budget, the Response Model produces more incremental visits than X-Learner in both campaigns.
 
-This gives a clear result for `visit`: the selected Response policies produce positive incremental visits on unseen data for both email campaigns.
+Bootstrap results for the selected Response policies also remain fully above zero:
+
+- **Mens:** mean ≈ 161.5, 95% CI ≈ **[104.5, 233.5]**
+- **Womens:** mean ≈ 135.9, 95% CI ≈ **[84.5, 192.4]**
+
+The locked-test results therefore support the validation decision to keep the Response Model for Visit. The selected policy continues to produce positive incremental visits on unseen data in both campaigns.
 
 ---
 
 # 4. Conversion Results
 
-## 4.1 Response Model Diagnostics
-
-The Response Model shows:
-
-| Experiment | ROC-AUC | Average Precision |
-|---|---:|---:|
-| Mens Conversion | 0.580 | 0.0145 |
-| Womens Conversion | 0.592 | 0.0099 |
-
-Average Precision is much lower than for `visit`, which is expected because conversion is much rarer.
-
-These metrics are still only diagnostics and do not decide the final policy.
-
----
-
-## 4.2 Validation Whole-Curve Results
+## 4.1 Validation Whole-Curve Results
 
 ### Mens Conversion
 
@@ -177,7 +159,7 @@ These metrics are still only diagnostics and do not decide the final policy.
 | `treated_response_lgbm` | 17.786 | 2.788 |
 | `x_learner_lgbm` | 18.657 | 3.660 |
 
-For Mens Conversion, T-Learner has the strongest whole-curve result.
+T-Learner has the strongest whole-curve result for Mens Conversion, leading both AUUC and Qini. X-Learner ranks second, while the Response Model has the weakest full-curve result among the three policies.
 
 ![Mens Conversion Qini Curve](../../artifacts/figures/hillstrom_mens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_qini_curve.png)
 
@@ -191,17 +173,16 @@ For Mens Conversion, T-Learner has the strongest whole-curve result.
 | `treated_response_lgbm` | 8.139 | 1.187 |
 | `x_learner_lgbm` | 9.463 | 2.511 |
 
-T-Learner also leads Womens Conversion, although X-Learner is very close.
-
-So, unlike Visit, both Conversion experiments give the same whole-curve winner.
+Womens Conversion shows the same overall pattern. T-Learner again has the highest AUUC and Qini, although X-Learner is very close on both metrics.
 
 ![Womens Conversion Qini Curve](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_qini_curve.png)
 
 ![Womens Conversion Uplift Curve](../../artifacts/figures/hillstrom_womens_conversion_conversion_t_learner_lgbm_vs_conversion_treated_response_lgbm_vs_conversion_x_learner_lgbm_run04_uplift_curve.png)
 
+Unlike Visit, both Conversion campaigns produce the same full-curve leader: T-Learner.
 ---
 
-## 4.3 Conversion Top-20% Policy Results
+## 4.2 Conversion Top-20% Policy Results
 
 | Experiment | Model | Incremental conversions | Policy value |
 |---|---|---:|---:|
@@ -212,99 +193,73 @@ So, unlike Visit, both Conversion experiments give the same whole-curve winner.
 | Womens | `treated_response_lgbm` | -3.775 | 0.005157 |
 | Womens | `x_learner_lgbm` | 1.483 | 0.005859 |
 
-T-Learner has the highest Top-20% policy value in both Conversion experiments.
+T-Learner has the highest Top-20% `policy_value` among the uplift candidates in both experiments.
 
-It is therefore selected as the uplift champion for both campaigns.
+Therefore:
 
-However, the differences in policy value are small, especially for Womens Conversion where T-Learner and X-Learner are almost identical.
+**Conversion uplift champion: `t_learner_lgbm` for both Mens and Womens.**
+
+For Womens, T-Learner and X-Learner are nearly tied, showing very little separation between the two uplift candidates.
 
 ---
 
-## 4.4 Conversion Replacement Gate
+## 4.3 Conversion Replacement Gate
 
 | Experiment | Uplift champion | Mean Δ policy value vs Response | 95% CI | Gate | Recommended policy |
 |---|---|---:|---:|---|---|
 | Mens Conversion | `t_learner_lgbm` | +0.000331 | [-0.000836, 0.001532] | Failed | `treated_response_lgbm` |
 | Womens Conversion | `t_learner_lgbm` | +0.000677 | [-0.000355, 0.001647] | Failed | `treated_response_lgbm` |
 
-Both point estimates are positive, but both confidence intervals cross zero.
+Both confidence intervals cross zero.
 
-Therefore, T-Learner does not show a stable enough improvement over the Response baseline to justify replacement.
+T-Learner therefore does not show enough evidence to replace the Response baseline in either campaign.
 
-As with Visit, the final validation decision is to keep the Response Model.
+**Recommended Conversion policy: `treated_response_lgbm` for both Mens and Womens.**
 
 ---
 
-## 4.5 Conversion Locked-Test Results
+## 4.4 Conversion Locked-Test Results
 
-| Experiment | Test Qini | Top-20% incremental conversions | Bootstrap mean | 95% CI |
-|---|---:|---:|---:|---:|
-| Mens Conversion | 0.733 | 11.642 | 12.171 | [-1.274, 27.925] |
-| Womens Conversion | 3.018 | 13.117 | 12.906 | [-2.705, 29.989] |
+The locked test compares the frozen T-Learner champion with the Response baseline.
 
-Unlike Visit, both conversion confidence intervals cross zero.
+| Experiment | Policy | Top-20% incremental conversions | Policy value | Test Qini |
+|---|---|---:|---:|---:|
+| Mens | `treated_response_lgbm` | **11.642** | **0.007274** | **0.733** |
+| Mens | `t_learner_lgbm` | 4.823 | 0.006336 | -1.672 |
+| Womens | `treated_response_lgbm` | **13.117** | **0.007498** | 3.018 |
+| Womens | `t_learner_lgbm` | 6.921 | 0.006796 | **3.196** |
 
-The point estimates are positive, but the locked-test evidence is not strong enough to conclude that the incremental conversion outcome is clearly above zero.
+The Response Model produces more incremental conversions than T-Learner in both campaigns. Given the small number of conversion events, these point estimates should be interpreted cautiously.
 
-This is consistent with the small number of conversion events observed in validation.
+Overall, the locked-test results remain consistent with the validation decision to keep the Response Model for Conversion.
 
 ---
 
 # 5. Visit vs Conversion
 
-The two outcomes follow the same modeling and evaluation workflow, but they produce different levels of statistical stability.
+The same framework produces different uplift champions but the same deployment decision.
 
 | Comparison | Visit | Conversion |
 |---|---|---|
 | Validation positive observations | 1,100–1,231 | 62–78 |
 | Uplift champion | X-Learner | T-Learner |
-| Champion passes replacement gate? | No | No |
-| Final recommended policy | Response Model | Response Model |
-| Locked-test incremental outcome CI | Above zero for both campaigns | Crosses zero for both campaigns |
-| Overall stability | Stronger | Weaker |
+| Replacement gate | Failed in both campaigns | Failed in both campaigns |
+| Recommended policy | Response Model | Response Model |
+| Locked-test Top-20% result | Response produces more incremental visits than X-Learner in both campaigns | Response produces more incremental conversions than T-Learner in both campaigns |
 
-The most important difference is not the name of the uplift champion.
+The main difference is the amount of outcome evidence available. Visit has substantially more positive observations, while Conversion is much rarer.
 
-For `visit`, there are many more positive observations. The locked-test Response policies have confidence intervals fully above zero for both Mens and Womens campaigns.
-
-For `conversion`, the outcome is much rarer. Even when T-Learner has the strongest validation ranking and Top-20% result, its advantage over the Response baseline is not stable under bootstrap. On the locked test, the incremental-conversion confidence intervals also cross zero.
-
-The absolute values of `visit` and `conversion` metrics should not be directly compared because they represent different outcomes with very different base rates. The useful comparison is the strength and stability of the evidence.
+However, the deployment conclusion is the same: none of the four uplift experiments provides enough validation evidence to replace the Response baseline.
 
 ---
 
-# 6. Main Findings
+# 6. Conclusion
 
-1. **Visit provides stronger evaluation evidence than conversion.**  
-   Visit has many more positive observations, so the models have more outcome signal to learn from and the Top-20% and locked-test estimates are more stable.
+After Criteo, Hillstrom provides a second test of the same uplift-selection framework under different data conditions. The two benchmarks are not directly comparable by raw AUUC, Qini, or policy_value: Criteo uses a Top-5% operating budget with an approximately 85/15 Treatment-Control split, while Hillstrom uses a dataset-specific modeling config, a Top-20% budget, and nearly balanced binary Treatment-Control experiments.
 
-2. **The best uplift candidate is different for the two outcomes.**  
-   X-Learner is selected for `visit`, while T-Learner is selected for `conversion`.
+The result is also different. In Criteo, uplift modeling provides enough evidence to replace the Response Model for visit, while the Response Model is retained for conversion. In Hillstrom, neither X-Learner for visit nor T-Learner for conversion passes the replacement gate, so the Response Model remains the recommended policy across both campaigns and outcomes.
 
-3. **Neither uplift champion is strong enough to replace the Response baseline.**  
-   All four replacement-gate confidence intervals include zero.
+The contrast with Criteo shows that the uplift advantage does not automatically carry over to another dataset. Because the two benchmarks differ in scale, treatment distribution, outcome frequency, feature structure, modeling configuration, and targeting budget, the current experiments cannot yet determine which data characteristic is responsible for the different result.
 
-4. **The final recommended policy is the Response Model for both outcomes and both campaigns.**  
-   The framework does not replace the baseline based only on a better validation point estimate.
-
-5. **The locked test shows a clearer result for visit.**  
-   `visit` has positive incremental outcomes with confidence intervals fully above zero, while `conversion` remains uncertain because its confidence intervals still include zero.
-
----
-
-# 7. Conclusion
-
-Hillstrom shows that the same uplift-modeling workflow can produce different results depending on the outcome.
-
-For `visit`, the higher positive rate provides more outcome signal for model learning and evaluation. X-Learner is the stronger uplift candidate, but it does not show a stable improvement over the Response baseline. The selected Response policies then show clearly positive incremental visits on the locked test.
-
-For `conversion`, the positive outcome is very rare compared with the full dataset. This gives the models much less signal to learn from and makes treatment-effect and Top-20% estimates less stable. T-Learner is the stronger uplift candidate, but its improvement over the Response baseline is uncertain, and the locked-test confidence intervals also include zero.
-
-The final decision is therefore the same for both outcomes:
-
-**Keep the Response Model as the recommended policy.**
-
-The main difference is the strength of the evidence. `visit` gives a clearer and more stable result, while `conversion` is harder to learn and evaluate because positive outcomes are too sparse.
-
-This shows that model quality depends not only on the modeling method, but also on how much useful outcome signal is available in the dataset.
+The next step is to test the framework on additional datasets with different scales and data characteristics. Comparing the results across datasets can help identify which data conditions are more suitable for uplift modeling and when it provides a meaningful advantage over conventional Response targeting.
 
