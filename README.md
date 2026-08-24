@@ -2,24 +2,16 @@
 
 > A customer-targeting data science project that combines dataset-specific analysis with a shared uplift-modeling evaluation framework.
 
-## Demo Dashboard
-
-![Customer Targeting Dashboard](docs/week_6/demo_gift.gif)
-
-The final dashboard turns model outputs into a targeting decision: choose a campaign budget, view the recommended strategy, expected incremental outcome, comparison with the Response baseline, and export the ranked customer list.
-
----
-
 ## Project Overview
 
 This project studies **when uplift modeling provides a useful targeting advantage over conventional Response modeling** across three datasets: **Criteo, Hillstrom, and RetailHero**.
 
 The work is not only about testing a reusable framework. Each dataset requires its own Data Science process before modeling:
 
-- Data understanding, cleaning, and EDA
-- Treatment and outcome definition
-- Leakage checks and feature engineering
-- Analysis of the data conditions behind the modeling results.
+- data understanding, cleaning, and EDA;
+- treatment and outcome definition;
+- leakage checks and feature engineering;
+- analysis of the data conditions behind the modeling results.
 
 After the data is modeling-ready, the same shared framework is used to train and evaluate targeting policies consistently.
 
@@ -66,7 +58,7 @@ freeze validation decision
    ↓
 locked-test evaluation
    ↓
-ranked customers / dashboard
+ranked customer results
 ```
 
 The framework begins **after dataset-specific preparation is complete**. Validation is used for model selection and the replacement gate; the locked test only evaluates the already-frozen policies.
@@ -96,6 +88,14 @@ For the full framework contract, artifacts, selection rules, provenance, and loc
 - [**RetailHero — End-to-End Uplift Modeling**](docs/week_6/retailhero_report.md)
 
 The reports contain the detailed analysis and statistical results; this README only provides the project-level overview.
+
+---
+
+## Dashboard
+
+![Customer Targeting Dashboard](docs/week_6/demo_gift.gif)
+
+The dashboard is a presentation layer for the completed experiment outputs. It summarizes the recommended policy, targeting budget, expected incremental outcome, comparison with the Response baseline, and ranked customer results so the final customer-selection output is easier to review.
 
 ---
 
