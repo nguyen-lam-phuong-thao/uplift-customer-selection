@@ -105,14 +105,3 @@ The dashboard is a presentation layer for the completed experiment outputs. It s
 ## Main Takeaway
 
 There is **no universal uplift winner** across the three datasets. The project uses dataset-specific analysis together with a common evaluation framework to determine how the decision between **Uplift and Response modeling** changes across different data settings, and whether an uplift policy provides enough evidence to improve the actual customer-selection decision over a conventional Response strategy.
-
-
-
-
-
-
-
-
-## Main Takeaway
-
-There is **no universal uplift winner** across the three datasets. The project uses dataset-specific analysis together with a common evaluation framework to decide whether an uplift policy provides enough evidence to improve the actual customer-selection decision over a conventional Response strategy.
